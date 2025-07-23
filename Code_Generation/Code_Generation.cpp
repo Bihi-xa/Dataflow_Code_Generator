@@ -5,6 +5,7 @@
 #include <fstream>
 #include <filesystem>
 #include "Language/C_Cpp/Generate_C_Cpp.hpp"
+#include "Language/Rust/Generate_Rust.hpp"
 #include "rapidxml-1.13/rapidxml.hpp"
 
 /* Differences of the actor instance from the base actor.
@@ -171,6 +172,23 @@ void Code_Generation::generate_code(
 		if (!y.second.empty()) {
 			sources.push_back(y.second);
 		}
+	}else if (c->get_target_language() == Target_Language::rust) {
+		auto tmp = Code_Generation_Rust::start_code_generation(dpn, opt_data1, opt_data2, map_data);
+		if (!tmp.first.empty()) {
+			includes.push_back(tmp.first);
+		}
+		if (!tmp.second.empty()) {
+			sources.push_back(tmp.second);
+		}
+
+		auto y = Code_Generation_Rust::generate_channel_code(opt_data1, opt_data2, map_data);
+		if (!y.first.empty()) {
+			includes.push_back(y.first);
+			//channel_include = "#include\"" + y.first + "\"\n";
+		}
+		if (!y.second.empty()) {
+			sources.push_back(y.second);
+		}
 	}
 
 	/*
@@ -326,13 +344,25 @@ void Code_Generation::generate_code(
 	for (auto it = actor_variants_map.begin(); it != actor_variants_map.end(); ++it) {
 		for (auto variant = it->second.begin(); variant != it->second.end(); ++variant) {
 			variant->actor->get_conversion_data().set_class_name(variant->name);
-			auto i = Code_Generation_C_Cpp::generate_actor_code(variant->actor, variant->name, variant->unused_actions,
-				variant->unused_in_channels, variant->unused_out_channels, opt_data1, opt_data2, map_data, channel_include, variant->scheduling_loop_bound);
-			if (!i.first.empty()) {
-				includes.push_back(i.first);
+			if (c->get_target_language() == Target_Language::rust) {
+				auto i = Code_Generation_Rust::generate_actor_code(variant->actor, variant->name, variant->unused_actions,
+					variant->unused_in_channels, variant->unused_out_channels, opt_data1, opt_data2, map_data, channel_include, variant->scheduling_loop_bound);
+				if (!i.first.empty()) {
+					includes.push_back(i.first);
+				}
+				if (!i.second.empty()) {
+					sources.push_back(i.second);
+				}
 			}
-			if (!i.second.empty()) {
-				sources.push_back(i.second);
+			else {
+				auto i = Code_Generation_C_Cpp::generate_actor_code(variant->actor, variant->name, variant->unused_actions,
+					variant->unused_in_channels, variant->unused_out_channels, opt_data1, opt_data2, map_data, channel_include, variant->scheduling_loop_bound);
+				if (!i.first.empty()) {
+					includes.push_back(i.first);
+				}
+				if (!i.second.empty()) {
+					sources.push_back(i.second);
+				}
 			}
 		}
 	}
@@ -340,22 +370,45 @@ void Code_Generation::generate_code(
 	for (auto it = dpn->get_composit_actors().begin();
 		it != dpn->get_composit_actors().end(); ++it)
 	{
-		auto i = Code_Generation_C_Cpp::generate_composit_actor_code(*it, opt_data1, opt_data2, map_data, channel_include, (*it)->get_sched_loop_bound());
-		if (!i.first.empty()) {
-			includes.push_back(i.first);
+		if (c->get_target_language() == Target_Language::rust) {
+			auto i = Code_Generation_Rust::generate_composit_actor_code(*it, opt_data1, opt_data2, map_data, channel_include, (*it)->get_sched_loop_bound());
+			if (!i.first.empty()) {
+				includes.push_back(i.first);
+			}
+			if (!i.second.empty()) {
+				sources.push_back(i.second);
+			}
 		}
-		if (!i.second.empty()) {
-			sources.push_back(i.second);
+		else {
+			auto i = Code_Generation_C_Cpp::generate_composit_actor_code(*it, opt_data1, opt_data2, map_data, channel_include, (*it)->get_sched_loop_bound());
+			if (!i.first.empty()) {
+				includes.push_back(i.first);
+			}
+			if (!i.second.empty()) {
+				sources.push_back(i.second);
+			}
 		}
+		
+		
 	}
-
-	auto i = Code_Generation_C_Cpp::generate_core(dpn, opt_data1, opt_data2, map_data, includes);
-	//ignorning first element as it is the header only adding source to sources
-	sources.push_back(i.second);
+	if (c->get_target_language() == Target_Language::rust) {
+		auto i = Code_Generation_Rust::generate_core(dpn, opt_data1, opt_data2, map_data, includes);
+		//ignorning first element as it is the header only adding source to sources
+		sources.push_back(i.second);
+	}
+	else {
+		auto i = Code_Generation_C_Cpp::generate_core(dpn, opt_data1, opt_data2, map_data, includes);
+		//ignorning first element as it is the header only adding source to sources
+		sources.push_back(i.second);
+	}
+	
 
 	if ((c->get_target_language() == Target_Language::c) ||
 		(c->get_target_language() == Target_Language::cpp))
 	{
 		Code_Generation_C_Cpp::end_code_generation(dpn, opt_data1, opt_data2, map_data, includes, sources);
+	}
+	else if (c->get_target_language() == Target_Language::rust) {
+		Code_Generation_Rust::end_code_generation(dpn, opt_data1, opt_data2, map_data, includes, sources);
 	}
 }

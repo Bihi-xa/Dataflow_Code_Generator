@@ -9,11 +9,13 @@ enum Target_Language
 {
     cpp,
     c,
+    rust,
 };
 
 enum Target_ABI {
     stdc,
     stdcpp,
+    stdrust,
 };
 
 /* Singleton to store the configuration data parsed from command line parameters! */

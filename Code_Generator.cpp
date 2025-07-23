@@ -30,7 +30,7 @@ static void parse_command_line_input(int argc, char* argv[]) {
 				"	--orcc			   ORCC compatibility, required to use ORCC projects.\n"
 				"   --cmake            Generate CMake File for the generated code.\n"
 				"   --static_alloc     Make allocations static, don't use new operator.\n"
-				"   --abi=<stdc|stdc++>      Generate C or C++ code, default is C++.\n"
+				"   --abi=<stdc|stdc++|stdrust>      Generate C, C++ or Rust code, default is C++.\n"
 				"\nCommunication Channels:\n"
 				"	-s <number>        Specify the default size of the FIFOs.\n"
 				"\nOpenMP:\n"
@@ -99,6 +99,10 @@ static void parse_command_line_input(int argc, char* argv[]) {
 			else if ((strat == "stdc") || (strat == "stdC")) {
 				c->set_target_language(Target_Language::c);
 				c->set_target_ABI(Target_ABI::stdc);
+			}
+			else if ((strat == "stdrust") || (strat ==  "stdRust")) {
+				c->set_target_language(Target_Language::rust);
+				c->set_target_ABI(Target_ABI::stdrust);
 			}
 			else {
 				std::cout << "Cannot detect target ABI and language for code generation." << std::endl;
@@ -315,6 +319,9 @@ int main(int argc, char* argv[]) {
 	if (c->get_target_language() == Target_Language::cpp) {
 		std::cout << "Generating C++ code." << std::endl;
 	}
+	if (c->get_target_language() == Target_Language::rust) {
+		std::cout << "Generating Rust code." << std::endl;
+	}
 	std::cout << "Scheduling: ";
 	if (c->get_sched_non_preemptive()) {
 		std::cout << "Non-Preemptive." << std::endl;
@@ -368,6 +375,7 @@ int main(int argc, char* argv[]) {
 		std::cout << "List scheduling not supported for C ...exiting." << std::endl;
 		exit(92);
 	}
+	// add what rust doesnt support 
 
 	IR::Dataflow_Network* dpn;
 
