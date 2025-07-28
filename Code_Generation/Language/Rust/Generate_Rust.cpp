@@ -31,6 +31,37 @@ static void generate_base_class(void)
 	output_file.close();
 }
 
+static void generate_build(void)
+{
+	std::string code =
+		"use std::fs;\n"
+		"\n"
+		"fn main() {\n"
+		"\tlet mut build = cc::Build::new();\n"
+		"\n"
+		"\tfor entry in fs::read_dir(\"native\").unwrap() {\n"
+		"\t\tlet path = entry.unwrap().path();\n"
+		"\t\tif path.extension().unwrap_or_default() == \"c\" {\n"
+		"\t\t\tbuild.file(path);\n"
+		"\t\t}\n"
+		"\t}\n"
+		"\n"
+		"\tbuild.compile(\"native_code\");\n"
+		"}";
+
+	Config* c = c->getInstance();
+	std::filesystem::path path{ c->get_target_dir() };
+	path /= "build.rs";
+
+	std::ofstream output_file{ path };
+	if (output_file.fail())
+	{
+		throw Code_Generation::Code_Generation_Exception{ "Cannot open the file " + path.string() };
+	}
+	output_file << code;
+	output_file.close();
+}
+
 static void init_abi(IR::Dataflow_Network* dpn)
 {
 	Config* c = c->getInstance();
@@ -52,12 +83,19 @@ Code_Generation_Rust::start_code_generation(
 	std::filesystem::path target_dir = c->get_target_dir();
 	std::filesystem::create_directories(target_dir / "src");
 
+	// create native directory
+	std::filesystem::create_directories(target_dir / "native");
+
+	// generate build.rs to handle native file
+	generate_build();
+
 	// as rust is the only target here we dont need an if statement
 	generate_base_class();
 
-	/*if (c->get_orcc_compat()) {
-		return generate_ORCC_compatibility_layer(c->get_target_dir());
-	}*/
+	// if (c->get_orcc_compat())
+	// {
+	// 	return generate_ORCC_compatibility_layer(c->get_target_dir());
+	// }
 	return std::make_pair(std::string(), std::string());
 }
 
@@ -93,6 +131,9 @@ Code_Generation_Rust::end_code_generation(
 	code.append("name = \"generated_project\"\n");
 	code.append("version = \"0.1.0\"\n");
 	code.append("edition = \"2021\"\n");
+	code.append("\n");
+	code.append("[build-dependencies]\n");
+	code.append("cc = \"1.0\"");
 	code.append("\n");
 	code.append("[dependencies]\n");
 	code.append("tokio = { version = \"1\", features = [\"full\"] }\n");

@@ -81,10 +81,11 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl(
     std::string prefix)
 {
     // p2: channel type
+    std::string name = (channel_name == "in") ? "input" : channel_name;
     std::string p2, p1;
     p2 = "ChannelSender<" + type + ">";
     p1 = prefix;
-    p1.append(channel_name + ": " + p2 + ", \n");
+    p1.append(name + ": " + p2 + ", \n");
     return std::make_pair(p1, p2);
 }
 
@@ -95,11 +96,12 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_sen(
     bool static_def,
     std::string prefix)
 {
+    std::string name = (channel_name == "in") ? "input" : channel_name;
     // p2: channel type
     std::string p2, p1;
     p2 = "ChannelSender<" + type + ">";
     p1 = prefix;
-    p1.append(channel_name + ": Option<" + p2 + ">, \n");
+    p1.append(name + ": Option<" + p2 + ">, \n");
     return std::make_pair(p1, p2);
 }
 
@@ -110,11 +112,12 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_rec(
     bool static_def,
     std::string prefix)
 {
+    std::string name = (channel_name == "in") ? "input" : channel_name;
     // p2: channel type
     std::string p2, p1;
     p2 = "ChannelReceiver<" + type + ">";
     p1 = prefix;
-    p1.append(channel_name + ": " + p2 + ", \n");
+    p1.append(name + ": " + p2 + ", \n");
     return std::make_pair(p1, p2);
 }
 // it needs 2 arguments instead of channel_name ; (sender,reciever)
@@ -134,7 +137,9 @@ std::string ABI_stdrust::channel_init(
 std::string ABI_stdrust::channel_read(
     std::string channel)
 {
-    return "self." + channel + ".read().await";
+    std::string name = (channel == "in") ? "input" : channel;
+
+    return "self." + name + ".read().await";
 }
 
 std::string ABI_stdrust::channel_write(

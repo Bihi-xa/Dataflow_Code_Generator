@@ -47,6 +47,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					// std::cout << "DEBUG 1" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -164,9 +165,11 @@ namespace Converter_RVC_Rust
 			std::set<std::string>& actor_var_map,
 			bool println = false)
 		{
-			std::string format_string{};
+			std::string output{};
 			bool inside_brace = false;
 			std::string tmp_var;
+
+			output.append("(");
 
 			t = token_producer.get_next_token(); // skip '('
 
@@ -176,13 +179,13 @@ namespace Converter_RVC_Rust
 				{
 					std::string tmp{ convert_string(t, token_producer) };				// e.g., "Value: "
 					tmp.erase(std::remove(tmp.begin(), tmp.end(), '"'), tmp.end()); // remove " from the string
-					format_string.append(tmp);
+					output.append(tmp);
 				}
-				else if (t.str == "+")
+				else if (t.str == "+" && println)
 				{
 					if (inside_brace)
 					{
-						format_string += "} "; // end last {x}
+						output += "} "; // end last {x}
 						inside_brace = false;
 					}
 					t = token_producer.get_next_token();
@@ -190,13 +193,13 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "(")
 				{
-					format_string += convert_function_call_brakets(t, token_producer, actor_var_map, println);
+					output += convert_function_call_brakets(t, token_producer, actor_var_map, println);
 				}
 				else
 				{
-					if (!inside_brace)
+					if (!inside_brace && println)
 					{
-						format_string += " {";
+						output += " {";
 						inside_brace = true;
 					}
 					if (println)
@@ -212,27 +215,31 @@ namespace Converter_RVC_Rust
 					}
 					else
 					{
-						format_string += t.str;
+						if (actor_var_map.count(t.str) > 0) // checks if it is an actor variable
+						{
+							output.append("self.");
+						}
+						output += t.str;
 					}
 				}
 
 				t = token_producer.get_next_token();
 			}
 
-			if (inside_brace)
+			if (inside_brace && println)
 			{
-				format_string += "} ";
+				output += "} ";
 			}
 
 			t = token_producer.get_next_token(); // move past ')'
 
 			if (println)
 			{
-				return "(\"" + format_string + "\"" + tmp_var;
+				return "\"" + output + "\"" + tmp_var;
 			}
 			else
 			{
-				return format_string;
+				return output + ")";
 			}
 		}
 	}
@@ -253,6 +260,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					// std::cout << "DEBUG 1" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -703,7 +711,11 @@ namespace Converter_RVC_Rust
 						while (t.str != "..")
 						{
 							if (t.str == "")
+							{
+								// std::cout << "DEBUG 1" << std::endl;
 								throw Wrong_Token_Exception{ "Unexpected End of File." };
+							}
+
 							range_start.append(t.str);
 							t = token_prod.get_next_token();
 						}
@@ -813,7 +825,7 @@ namespace Converter_RVC_Rust
 					{
 						size_expr.append(convert_function_call_brakets(t, token_producer, actor_var_map));
 					}
-					else if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && (global_map[t.str] != "function"))
+					else if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && ((global_map[t.str] != "function") || (global_map[t.str] != "native")))
 					{
 						size_expr.append(global_map[t.str]);
 						t = token_producer.get_next_token();
@@ -1309,6 +1321,7 @@ namespace Converter_RVC_Rust
 						}
 						else if (t.str == "")
 						{
+							std::cout << "DEBUG convert_list_comprehension" << std::endl;
 							throw Wrong_Token_Exception{ "Unexpected End of File." };
 						}
 						else
@@ -1445,7 +1458,7 @@ namespace Converter_RVC_Rust
 					// std::cout << "Token: " << t.str << std::endl;
 					// std::cout << "global_map: " << global_map[t.str] << std::endl;
 					// std::cout << "local_map: " << local_map[t.str] << std::endl;
-					if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && (global_map[t.str] != "function"))
+					if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && ((global_map[t.str] != "function") || (global_map[t.str] != "native")))
 					{
 						output.append(global_map[t.str]);
 					}
@@ -1505,6 +1518,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convertr_function" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1550,6 +1564,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convertr_function" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1616,6 +1631,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug Procedure" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1651,6 +1667,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug Procedure" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1707,6 +1724,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_if" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1755,6 +1773,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_if" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1815,6 +1834,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_for" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1858,6 +1878,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_while" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1888,6 +1909,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_while" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -1925,7 +1947,7 @@ namespace Converter_RVC_Rust
 			{
 				return true;
 			}
-			if ((global_map.count(str) > 0) && (global_map[str] != "") && (global_map[str] != "function"))
+			if ((global_map.count(str) > 0) && (global_map[str] != "") && ((global_map[str] != "function") || (global_map[str] != "native")))
 			{
 				return true;
 			}
@@ -2015,6 +2037,10 @@ namespace Converter_RVC_Rust
 			output.append("return ");
 		}
 		symbol_name = t.str;
+		if (global_map[symbol_name] == "native")
+		{
+			output.append("unsafe { ");
+		}
 		Config* c = c->getInstance();
 		if (type_specified)
 		{
@@ -2163,6 +2189,7 @@ namespace Converter_RVC_Rust
 					}
 					else if (t.str == "")
 					{
+						std::cout << "DEbug convert_expre" << std::endl;
 						throw Wrong_Token_Exception{ "Unexpected End of File." };
 					}
 					else
@@ -2189,7 +2216,7 @@ namespace Converter_RVC_Rust
 						if (!is_const(t.str, global_map, local_map))
 						{
 							only_const_values = false;
-							if ((global_map.count(t.str) > 0) && (global_map[t.str] == "function"))
+							if ((global_map.count(t.str) > 0) && ((global_map[t.str] == "function") || (global_map[t.str] == "native")))
 							{
 								previous_token = t;
 								t = token_producer.get_next_token();
@@ -2323,7 +2350,7 @@ namespace Converter_RVC_Rust
 						if (!is_const(t.str, global_map, local_map))
 						{
 							only_const_values = false;
-							if ((global_map.count(t.str) > 0) && (global_map[t.str] == "function"))
+							if ((global_map.count(t.str) > 0) && ((global_map[t.str] == "function") || (global_map[t.str] == "native")))
 							{
 								t = token_producer.get_next_token();
 								value.append(convert_function_call_brakets(t, token_producer, actor_var_map));
@@ -2354,12 +2381,15 @@ namespace Converter_RVC_Rust
 		}
 		else
 		{ // find expressions with an assignment
-			if (!println && !print)
+			// check ofr print and function call
+			bool is_fn = false;
+			if (!println && !print && t.str != "(")
 			{
 				output.insert(0, prefix + "let ");
 			}
 			else
 			{
+				is_fn = true;
 				output.insert(0, prefix);
 			}
 
@@ -2392,9 +2422,20 @@ namespace Converter_RVC_Rust
 				}
 			}
 
-			if (!println && !print)
+			if (!println && !print && !is_fn)
 			{
 				output.append(": " + type + ";\n");
+			}
+			else if (is_fn)
+			{
+				if (global_map[symbol_name] == "native")
+				{
+					output.append(" };\n");
+				}
+				else
+				{
+					output.append(";\n");
+				}
 			}
 		}
 		if ((t.str == ";") || (t.str == ","))
@@ -2668,7 +2709,9 @@ namespace Converter_RVC_Rust
 		c++ output:
 		extern "C" int my_func(int x, float y);
 		Rust output:
-		extern "C" fn my_func(x: i32, y: f32) -> i32;
+		extern "C" {
+			fn my_func(x: i32, y: f32);
+		}
 		*/
 		std::string declaration;
 		bool add{ false };
@@ -2689,7 +2732,8 @@ namespace Converter_RVC_Rust
 			t = token_producer.get_next_token(); // name
 			if ((t.str == symbol) || (symbol == "*"))
 			{
-				global_map[t.str] = "function";
+				// global_map[t.str] = "function";
+				global_map[t.str] = "native";
 				actor_conversion_data.add_native_function(t.str);
 				add = true;
 			}
@@ -2705,14 +2749,18 @@ namespace Converter_RVC_Rust
 
 			while (t.str != ")")
 			{
+				// std::cout << "Token: " << t.str << std::endl;
 				if ((t.str == "uint") || (t.str == "int") || (t.str == "String") || (t.str == "bool") || (t.str == "half") || (t.str == "float"))
 				{
 					// declaration.append(convert_type(t, token_producer, global_map, global_map) + " ");
 					// declaration.append(t.str); // must be the parameter name
 					std::string rust_type = convert_type(t, token_producer, global_map, global_map);
-					t = token_producer.get_next_token(); // param name
+
+					// t = token_producer.get_next_token(); // param name
+
 					declaration.append(t.str + ": " + rust_type);
 					t = token_producer.get_next_token();
+
 					if (t.str != ")")
 					{
 						declaration.append(", ");
@@ -2720,7 +2768,9 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					// std::cout << "DEbug convert_native" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
+					// t = token_producer.get_next_token();
 				}
 				else
 				{
@@ -2728,7 +2778,7 @@ namespace Converter_RVC_Rust
 					std::cout << "Native function conversion failed at token " << t.str << std::endl;
 					exit(5);
 				}
-				t = token_producer.get_next_token();
+				// t = token_producer.get_next_token();
 			}
 			declaration.append(")");
 			t = token_producer.get_next_token(); // -->
@@ -2742,11 +2792,11 @@ namespace Converter_RVC_Rust
 				// must be the type
 				std::string return_type = "-> " + convert_type(t, token_producer, global_map, global_map);
 
-				declaration = "extern \"C\" fn " + declaration + " " + return_type + ";\n";
+				declaration = "extern \"C\" {\n \tfn " + declaration + " " + return_type + ";\n}\n";
 			}
 			else
 			{
-				declaration = "extern \"C\" fn " + declaration + ";\n";
+				declaration = "extern \"C\" {\n \tfn " + declaration + ";\n}\n";
 			}
 			if (function)
 			{
@@ -2771,7 +2821,8 @@ namespace Converter_RVC_Rust
 
 		if (add)
 		{
-			return declaration + ";\n";
+			// return declaration + ";\n";
+			return declaration + "\n";
 		}
 		else
 		{
@@ -2822,6 +2873,7 @@ namespace Converter_RVC_Rust
 			}
 			else if (t.str == "")
 			{
+				std::cout << "DEbug convert_scope" << std::endl;
 				throw Wrong_Token_Exception{ "Unexpected End of File." };
 			}
 			else
@@ -3119,6 +3171,7 @@ namespace Converter_RVC_Rust
 					}
 					else if (t.str == "")
 					{
+						std::cout << "DEbug convert_exp_var" << std::endl;
 						throw Wrong_Token_Exception{ "Unexpected End of File." };
 					}
 					else
@@ -3238,6 +3291,7 @@ namespace Converter_RVC_Rust
 					}
 					else if (t.str == "")
 					{
+						std::cout << "DEbug convert_exp_var" << std::endl;
 						throw Wrong_Token_Exception{ "Unexpected End of File." };
 					}
 					else
@@ -3288,6 +3342,7 @@ namespace Converter_RVC_Rust
 				}
 				else if (t.str == "")
 				{
+					std::cout << "DEbug convert_exp_var" << std::endl;
 					throw Wrong_Token_Exception{ "Unexpected End of File." };
 				}
 				else
@@ -3327,16 +3382,31 @@ namespace Converter_RVC_Rust
 	std::string convert_guard(
 		Token& t,
 		Token_Container& token_producer,
+		std::map<std::string, std::string>& global_map,
 		std::set<std::string>& actor_var_map)
 	{
 		std::string output{};
+		bool is_native = false;
 		while (t.str != "")
 		{
 			if (actor_var_map.count(t.str) > 0)
 			{
 				output.append("self.");
 			}
+
+			if (global_map[t.str] == "native")
+			{
+				output.append("unsafe { ");
+				is_native = true;
+			}
+
 			output.append(t.str);
+
+			if (t.str == ")" && is_native)
+			{
+				output.append(" }");
+				is_native = false;
+			}
 			t = token_producer.get_next_token();
 		}
 

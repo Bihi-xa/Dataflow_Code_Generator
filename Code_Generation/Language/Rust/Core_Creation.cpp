@@ -1,4 +1,5 @@
 #include "Generate_Rust.hpp"
+#include "Converter_RVC_Rust.hpp"
 #include "Config/config.h"
 #include "Config/debug.h"
 #include "Scheduling.hpp"
@@ -42,68 +43,27 @@ static std::set<std::string> actor_original;
 // }
 static std::string find_channel_type(
 	std::string port_name,
-	std::vector<IR::Buffer_Access>& ports)
+	std::vector<IR::Buffer_Access>& ports,
+	std::map<std::string, std::string>& global_map)
 {
+	// std::cout << "Port_name: " << port_name << std::endl;
+	// for (const auto &port : ports)
+	// {
+	// 	std::cout << "Name: " << port.buffer_name << std::endl;
+	// 	std::cout << "Type: " << port.type << std::endl;
+	// }
 	for (auto it = ports.begin(); it != ports.end(); ++it)
 	{
 		if (it->buffer_name == port_name)
 		{
-			std::string type_c = it->type;
-			if (type_c == "int(size=8)")
-			{
-				return "i8";
-			}
-			else if (type_c == "int(size=16)")
-			{
-				return "i16";
-			}
-			else if (type_c == "int(size=32)" || type_c == "int")
-			{
-				return "i32";
-			}
-			else if (type_c == "int(size=64)")
-			{
-				return "i64";
-			}
-			else if (type_c == "uint(size=8)")
-			{
-				return "u8";
-			}
-			else if (type_c == "uint(size=16)")
-			{
-				return "u16";
-			}
-			else if (type_c == "uint(size=32)")
-			{
-				return "u32";
-			}
-			else if (type_c == "uint(size=64)")
-			{
-				return "u64";
-			}
-			else if (type_c == "float(size=32)" || type_c == "float" || type_c == "float(size=16)")
-			{
-				return "f32";
-			}
-			else if (type_c == "float(size=64)" || type_c == "double")
-			{
-				return "f64";
-			}
-			else if (type_c == "bool")
-			{
-				return "bool";
-			}
-			else
-			{
-				// std::cout << "Unknown type for Rust conversion:" << std::endl;
-				 throw std::runtime_error("Unknown type for Rust conversion: " + type_c);
-				//return "i32";
-			}
+			Tokenizer tokenizer(it->type);
+			Token guard_token = tokenizer.get_next_token();
+			std::string rust_type = Converter_RVC_Rust::convert_type(guard_token, tokenizer, global_map);
+			return rust_type;
 		}
 	}
 	// this cannot happen as this is detected early during network reading
-	 throw Code_Generation::Code_Generation_Exception{"Cannot find type for port." + port_name};
-	//return "i32";
+	throw Code_Generation::Code_Generation_Exception{ "Cannot find type for port." };
 }
 
 static std::string generate_actor_constructor_parameters(
@@ -176,6 +136,9 @@ static std::string generate_channels(
 	{
 		IR::Actor_Instance* source = it->get_source();
 		IR::Actor_Instance* sink = it->get_sink();
+		Actor_Conversion_Data& d1 = source->get_conversion_data();
+		Actor_Conversion_Data& d2 = sink->get_conversion_data();
+		// std::cout << "Actor: " << d.get_class_name() << "Convertion data: " << d.get_var_code() << std::endl;
 		if ((source->get_composit_actor() != nullptr) && (source->get_composit_actor() == sink->get_composit_actor()))
 		{
 			// This is just an edge inside a cluster, no need to create a channel object for it.
@@ -185,7 +148,7 @@ static std::string generate_channels(
 		{
 			continue;
 		}
-
+		// std::cout << "DEBUG generate_channels 1" << std::endl;
 		std::string name;
 
 		name = it->get_src_id() + "_" + it->get_src_port() + "_" + it->get_dst_id() + "_" + it->get_dst_port();
@@ -197,7 +160,7 @@ static std::string generate_channels(
 		std::string channel_sender;
 		channel_receiver = it->get_dst_id() + "_" + it->get_dst_port();
 		channel_sender = it->get_src_id() + "_" + it->get_src_port();
-
+		// std::cout << "DEBUG generate_channels 2" << std::endl;
 		if (channel_impl_map.contains(name))
 		{
 			// just a sanity check, this cannot happen I think
@@ -205,11 +168,11 @@ static std::string generate_channels(
 			exit(5);
 		}
 		// convert to rust type
-
-		std::string typeSource = find_channel_type(it->get_src_port(), it->get_source()->get_actor()->get_out_buffers());
-
-		std::string typeSink = find_channel_type(it->get_dst_port(), it->get_sink()->get_actor()->get_in_buffers());
-
+		// std::cout << "DEBUG generate_channels 3" << std::endl;
+		std::string typeSource = find_channel_type(it->get_src_port(), it->get_source()->get_actor()->get_out_buffers(), d1.get_symbol_map());
+		// std::cout << "DEBUG generate_channels 4" << std::endl;
+		std::string typeSink = find_channel_type(it->get_dst_port(), it->get_sink()->get_actor()->get_in_buffers(), d2.get_symbol_map());
+		// std::cout << "DEBUG generate_channels 5" << std::endl;
 		if (typeSource != typeSink)
 		{
 			throw Code_Generation::Code_Generation_Exception{
@@ -445,7 +408,7 @@ Code_Generation_Rust::generate_core(
 	{
 		std::cout << "List scheduling not implemented for Rust code generation!" << std::endl;
 	}
-	{ // this part we dont know exactly what it does
+	{ // change later
 		std::string tmp;
 		ABI_ALLOC_HEADER(c, tmp);
 		code.append(tmp);
@@ -465,8 +428,10 @@ Code_Generation_Rust::generate_core(
 	code.append(include_code);
 
 	code.append(generate_channels(dpn, opt_data1, opt_data2, map_data));
+
 	code.append("\n\n");
 	code.append(generate_actor_instances(dpn, opt_data1, opt_data2, map_data));
+
 	code.append("\n\n");
 	// the global scheduler will be generated inside of main
 	code.append(generate_main(dpn, opt_data1, opt_data2, map_data));

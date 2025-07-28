@@ -178,28 +178,32 @@ static std::string constructor_generation(
 		it != constructor_parameter_name_type_map.end(); ++it)
 	{
 		ret.append(", ");
+		// problem: the keyword 'in' in rust cant be used as a name
+		// temporar solution until better alternative is found
+		std::string tmp_name = (it->first == "in") ? "input" : it->first;
 		// Type + _ + variable
 		// ret.append(it->second + " _" + it->first);
-		ret.append(it->first + ": " + it->second);
+		ret.append(tmp_name + ": " + it->second);
 
 		// we need to know if the channel is a sender or receiver
+
 		std::string init_line;
 		if (used_in_channels.find(it->first) != used_in_channels.end())
 		{
 			// its an input (Receiver)
-			init_line = it->first;
+			init_line = tmp_name;
 		}
 		else if (used_out_channels.find(it->first) != used_out_channels.end())
 		{
 			// its an output (Sender)
-			init_line = "Some(" + it->first + ")";
+			init_line = "Some(" + tmp_name + ")";
 		}
 		else
 		{
 			// fallback/default
-			init_line = it->first;
+			init_line = tmp_name;
 		}
-		body.append("\t\t\t" + it->first + ": " + init_line + ",\n");
+		body.append("\t\t\t" + tmp_name + ": " + init_line + ",\n");
 		data.add_parameter(it->first);
 	}
 	ret.append(") -> Self {\n");
@@ -412,7 +416,7 @@ static void convert_import(
 {
 	Actor_Conversion_Data& d = inst->get_conversion_data();
 	std::set<std::string> seen_vars;
-	std::set<std::string> converted_actors; // already of actors with already converted imports
+	std::set<std::string> converted_actors; // actors with already converted imports
 	std::set<std::string> empty_map;
 
 	for (auto it = inst->get_actor()->get_imported_symbols().begin();
@@ -451,6 +455,7 @@ static void convert_import(
 			}
 			else if (t.str == "")
 			{
+				// std::cout << "DEBUG 1" << std::endl;
 				throw Wrong_Token_Exception{ "Unexpected End of File." };
 			}
 			else
@@ -589,6 +594,7 @@ Code_Generation_Rust::generate_actor_code(
 
 	// impl Scheduling
 	header_code.append("impl Actor for " + class_name + " {\n");
+	std::map<std::string, std::string> empty_map;
 	for (auto it = instance->get_actor()->get_actions().begin();
 		it != instance->get_actor()->get_actions().end(); ++it)
 	{
@@ -596,7 +602,7 @@ Code_Generation_Rust::generate_actor_code(
 		Token guard_token = tokenizer.get_next_token();
 
 		// std::string tmp_guard = Converter_RVC_Rust::convert_expression(guard_token, tokenizer, d.get_symbol_map(), d.get_symbol_type_map(), actor_var_map, "");
-		std::string tmp_guard = Converter_RVC_Rust::convert_guard(guard_token, tokenizer, actor_var_map);
+		std::string tmp_guard = Converter_RVC_Rust::convert_guard(guard_token, tokenizer, empty_map, actor_var_map);
 		// std::string tmp_guard = (*it)->get_guard();
 		guard_map[(*it)->get_function_name()] = tmp_guard;
 		// guard_map[(*it)->get_function_name()] = (*it)->get_guard();

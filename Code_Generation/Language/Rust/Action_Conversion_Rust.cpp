@@ -812,7 +812,7 @@ static std::tuple<std::string, std::string> convert_output_FIFO_access(
 						Token token = tokenizer.get_next_token();
 
 						// we use the function to set the keyword self
-						std::string wv = Converter_RVC_Rust::convert_guard(token, tokenizer, actor_var_map);
+						std::string wv = Converter_RVC_Rust::convert_guard(token, tokenizer, actor_data.get_symbol_map(), actor_var_map);
 						ABI_CHANNEL_WRITE(c, tmp, wv, name, prefix)
 							output.append(tmp + "\n");
 					}
@@ -1025,24 +1025,8 @@ std::string convert_action_rust(
 	{
 		std::string tmp = convert_action_body(t, *token_producer, actor_data, local_symbol_map, local_type_map, actor_var_map, prefix + "\t");
 
-		// if (c->get_target_language() == Target_Language::c)
-		// {
-		// 	for (auto r : actor_data.get_replacement_map())
-		// 	{
-		// 		replace_variables(tmp, r.first, r.second);
-		// 	}
-		// }
-
 		output.append(tmp);
 	}
-
-	// if (c->get_target_language() == Target_Language::c)
-	// {
-	// 	for (auto r : actor_data.get_replacement_map())
-	// 	{
-	// 		replace_variables(end_of_output, r.first, r.second);
-	// 	}
-	// }
 
 	return output + end_of_output + prefix + "}\n";
 }

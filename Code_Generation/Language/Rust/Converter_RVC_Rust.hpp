@@ -18,6 +18,7 @@ namespace Converter_RVC_Rust
 	std::string convert_guard(
 		Token& t,
 		Token_Container& token_producer,
+		std::map<std::string, std::string>& global_map,
 		std::set<std::string>& actor_var_map);
 
 	std::string convert_expression_act_var(
