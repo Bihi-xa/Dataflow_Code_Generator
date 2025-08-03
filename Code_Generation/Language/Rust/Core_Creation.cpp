@@ -27,31 +27,11 @@ static std::map<std::string, IR::Actor_Instance*> actorname_instance_map; // Not
 static std::vector<std::string> global_scheduling_routines;
 static std::set<std::string> actor_original;
 
-// static std::string find_channel_type(
-// 	std::string port_name,
-// 	std::vector<IR::Buffer_Access> &ports)
-// {
-// 	for (auto it = ports.begin(); it != ports.end(); ++it)
-// 	{
-// 		if (it->buffer_name == port_name)
-// 		{
-// 			return it->type;
-// 		}
-// 	}
-// 	// this cannot happen as this is detected early during network reading
-// 	throw Code_Generation::Code_Generation_Exception{"Cannot find type for port."};
-// }
 static std::string find_channel_type(
 	std::string port_name,
 	std::vector<IR::Buffer_Access>& ports,
 	std::map<std::string, std::string>& global_map)
 {
-	// std::cout << "Port_name: " << port_name << std::endl;
-	// for (const auto &port : ports)
-	// {
-	// 	std::cout << "Name: " << port.buffer_name << std::endl;
-	// 	std::cout << "Type: " << port.type << std::endl;
-	// }
 	for (auto it = ports.begin(); it != ports.end(); ++it)
 	{
 		if (it->buffer_name == port_name)
@@ -138,7 +118,6 @@ static std::string generate_channels(
 		IR::Actor_Instance* sink = it->get_sink();
 		Actor_Conversion_Data& d1 = source->get_conversion_data();
 		Actor_Conversion_Data& d2 = sink->get_conversion_data();
-		// std::cout << "Actor: " << d.get_class_name() << "Convertion data: " << d.get_var_code() << std::endl;
 		if ((source->get_composit_actor() != nullptr) && (source->get_composit_actor() == sink->get_composit_actor()))
 		{
 			// This is just an edge inside a cluster, no need to create a channel object for it.
@@ -148,7 +127,6 @@ static std::string generate_channels(
 		{
 			continue;
 		}
-		// std::cout << "DEBUG generate_channels 1" << std::endl;
 		std::string name;
 
 		name = it->get_src_id() + "_" + it->get_src_port() + "_" + it->get_dst_id() + "_" + it->get_dst_port();
@@ -160,7 +138,6 @@ static std::string generate_channels(
 		std::string channel_sender;
 		channel_receiver = it->get_dst_id() + "_" + it->get_dst_port();
 		channel_sender = it->get_src_id() + "_" + it->get_src_port();
-		// std::cout << "DEBUG generate_channels 2" << std::endl;
 		if (channel_impl_map.contains(name))
 		{
 			// just a sanity check, this cannot happen I think
@@ -168,11 +145,8 @@ static std::string generate_channels(
 			exit(5);
 		}
 		// convert to rust type
-		// std::cout << "DEBUG generate_channels 3" << std::endl;
 		std::string typeSource = find_channel_type(it->get_src_port(), it->get_source()->get_actor()->get_out_buffers(), d1.get_symbol_map());
-		// std::cout << "DEBUG generate_channels 4" << std::endl;
 		std::string typeSink = find_channel_type(it->get_dst_port(), it->get_sink()->get_actor()->get_in_buffers(), d2.get_symbol_map());
-		// std::cout << "DEBUG generate_channels 5" << std::endl;
 		if (typeSource != typeSink)
 		{
 			throw Code_Generation::Code_Generation_Exception{
@@ -245,7 +219,6 @@ static std::string generate_actor_instances(
 			t.append(";\n");
 
 			// use actor1::Actor1;
-			// t.append("use " + (*it)->get_conversion_data().get_class_name() + "::" + (*it)->get_name());
 			t.append("use " + tmp_name + "::" + (*it)->get_conversion_data().get_class_name());
 			actor_original.insert((*it)->get_conversion_data().get_class_name());
 			result.append(t + ";\n");
@@ -254,13 +227,6 @@ static std::string generate_actor_instances(
 		// Must happen before the constructor parameters are generated!
 		actor_data_map[(*it)->get_name()] = (*it)->get_conversion_data_ptr();
 		actorname_instance_map[(*it)->get_name()] = (*it);
-
-		// if (c->get_static_alloc())
-		// {
-		// 	t.append("{");
-		// 	t.append(generate_actor_constructor_parameters((*it)->get_name(), (*it)->get_conversion_data_ptr(), true));
-		// 	t.append("}");
-		// }
 	}
 	result.append("// composit actors\n");
 
@@ -303,11 +269,10 @@ static std::string generate_main(
 	result.append("#[tokio::main(flavor = \"multi_thread\")]\n");
 	result.append("async fn main() {\n");
 
-	// TODO Later
-	if (c->get_orcc_compat())
-	{
-		result.append("\tparse_command_line_input(argc, argv);\n");
-	}
+	// if (c->get_orcc_compat())
+	// {
+	// 	result.append("\tparse_command_line_input(argc, argv);\n");
+	// }
 
 	// initialize channels
 	result.append("\t// Initialize channels\n");
@@ -318,8 +283,9 @@ static std::string generate_main(
 		ABI_CHANNEL_INIT(c, tmp, it->first, it->second, channel_impl_map[tmp_name], channel_type_map[tmp_name], channel_size_map[tmp_name], "\t");
 		result.append(tmp + "\n");
 	}
-
+	std::cout << "Main Inside. 1" << std::endl;
 	result.append("\n\n");
+
 	// initialize actor instances and call their init function
 	result.append("\t// Initialize actors\n");
 	for (auto it = actor_data_map.begin(); it != actor_data_map.end(); ++it)
@@ -331,59 +297,66 @@ static std::string generate_main(
 		result.append(");\n");
 		result.append("\t" + it->first + ".initialize();\n");
 	}
-
+	std::cout << "Main Inside. 2" << std::endl;
 	result.append("\n\n");
 
 	// Scheduling
 	result.append(Scheduling::generate_global_scheduler_rust(dpn, opt_data1, opt_data2, map_data,
 		global_scheduling_routines, actor_data_map));
 	result.append("\n\n");
-
+	std::cout << "Main Inside. 3" << std::endl;
 	/*
 	we cant deal with this part directly now as we dont use a function from outside of main
 	but generate it inside depending on the scheduling starategy
 	*/
-	if (c->get_omp_tasking())
-	{
-		result.append("#pragma omp parallel default(shared)\n");
-		result.append("#pragma omp single\n");
-		result.append("\t{\n");
-		for (auto it = global_scheduling_routines.begin();
-			it != global_scheduling_routines.end(); ++it)
-		{
-			result.append("#pragma omp task\n");
-			result.append("\t" + *it + "();\n");
-		}
-		result.append("\t}\n");
-	}
-	else if (c->get_cores() > 1)
-	{
-		std::vector<std::string> identifiers;
-		for (unsigned i = 0; i < c->get_cores(); ++i)
-		{
-			std::string tmp;
-			std::string identifier;
-			ABI_THREAD_CREATE(c, tmp, global_scheduling_routines[i], "\t", identifier);
-			result.append(tmp);
-			identifiers.push_back(identifier);
-		}
-		for (auto i = identifiers.begin(); i != identifiers.end(); ++i)
-		{
-			std::string tmp;
-			ABI_THREAD_START(c, tmp, *i, "\t");
-			result.append(tmp);
-		}
-		for (auto i = identifiers.begin(); i != identifiers.end(); ++i)
-		{
-			std::string tmp;
-			ABI_THREAD_JOIN(c, tmp, *i, "\t");
-			result.append(tmp);
-		}
-	}
-	else
-	{
-		result.append("\t" + global_scheduling_routines[0] + "();\n");
-	}
+	// if (c->get_omp_tasking())
+	// {
+	// 	std::cout << "Main Inside. 4" << std::endl;
+	// 	result.append("#pragma omp parallel default(shared)\n");
+	// 	result.append("#pragma omp single\n");
+	// 	result.append("\t{\n");
+	// 	for (auto it = global_scheduling_routines.begin();
+	// 		 it != global_scheduling_routines.end(); ++it)
+	// 	{
+	// 		result.append("#pragma omp task\n");
+	// 		result.append("\t" + *it + "();\n");
+	// 	}
+	// 	result.append("\t}\n");
+	// }
+	// else if (c->get_cores() > 1)
+	// {
+
+	// 	std::vector<std::string> identifiers;
+	// 	for (unsigned i = 0; i < c->get_cores(); ++i)
+	// 	{
+
+	// 		std::string tmp;
+	// 		std::string identifier;
+	// 		ABI_THREAD_CREATE(c, tmp, global_scheduling_routines[i], "\t", identifier);
+	// 		result.append(tmp);
+	// 		identifiers.push_back(identifier);
+	// 			}
+
+	// 	for (auto i = identifiers.begin(); i != identifiers.end(); ++i)
+	// 	{
+	// 		std::string tmp;
+	// 		ABI_THREAD_START(c, tmp, *i, "\t");
+	// 		result.append(tmp);
+	// 	}
+
+	// 	for (auto i = identifiers.begin(); i != identifiers.end(); ++i)
+	// 	{
+	// 		std::string tmp;
+	// 		ABI_THREAD_JOIN(c, tmp, *i, "\t");
+	// 		result.append(tmp);
+	// 	}
+
+	// }
+	// else
+	// {
+	// 	result.append("\t" + global_scheduling_routines[0] + "();\n");
+	// }
+
 	result.append("}");
 	return result;
 }
@@ -404,15 +377,15 @@ Code_Generation_Rust::generate_core(
 
 	std::string code{};
 
-	if (c->get_list_scheduling())
-	{
-		std::cout << "List scheduling not implemented for Rust code generation!" << std::endl;
-	}
-	{ // change later
-		std::string tmp;
-		ABI_ALLOC_HEADER(c, tmp);
-		code.append(tmp);
-	}
+	// if (c->get_list_scheduling())
+	// {
+	// 	std::cout << "List scheduling not implemented for Rust code generation!" << std::endl;
+	// }
+	// { // change later
+	// 	std::string tmp;
+	// 	ABI_ALLOC_HEADER(c, tmp);
+	// 	code.append(tmp);
+	// }
 
 	code.append("\nconst CHANNEL_SIZE: usize =  " + std::to_string(c->get_FIFO_size()) + ";\n");
 
@@ -426,16 +399,16 @@ Code_Generation_Rust::generate_core(
 	include_code.append("use tokio::task::JoinHandle;\n");
 
 	code.append(include_code);
-
+	std::cout << "Main Generation." << std::endl;
 	code.append(generate_channels(dpn, opt_data1, opt_data2, map_data));
-
+	std::cout << "Main Generation. 2" << std::endl;
 	code.append("\n\n");
 	code.append(generate_actor_instances(dpn, opt_data1, opt_data2, map_data));
-
+	std::cout << "Main Generation. 3" << std::endl;
 	code.append("\n\n");
 	// the global scheduler will be generated inside of main
 	code.append(generate_main(dpn, opt_data1, opt_data2, map_data));
-
+	std::cout << "Main Generation. 4" << std::endl;
 	std::filesystem::path path{ c->get_target_dir() };
 	path /= "src";
 	std::string filename;

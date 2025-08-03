@@ -4,11 +4,11 @@
 // #include "Misc.hpp"
 #include "ABI/abi.hpp"
 
-/* Generate a simple base class all other actors inherit from.
+/* Generate a simple base struct all other actors inherit from.
  * This allows storing all actors in one list.
  * In case of Rust it is trait and struct
  */
-static void generate_base_class(void)
+static void generate_base_struct(void)
 {
 	std::string code =
 		"pub trait Actor {\n"
@@ -89,8 +89,7 @@ Code_Generation_Rust::start_code_generation(
 	// generate build.rs to handle native file
 	generate_build();
 
-	// as rust is the only target here we dont need an if statement
-	generate_base_class();
+	generate_base_struct();
 
 	// if (c->get_orcc_compat())
 	// {
@@ -110,21 +109,7 @@ Code_Generation_Rust::end_code_generation(
 {
 	Config* c = c->getInstance();
 	// Cmake generation is not needed, as we are using cargo project
-	/*
-	if (c->get_cmake()) {
-		std::string path = c->get_target_dir();
-		std::string source_files;
-		for (auto s : sources) {
-			if (!source_files.empty()) {
-				source_files.append(" ");
-			}
-			source_files.append(s);
-		}
-		std::string network_name = dpn->get_name();
 
-		generate_cmake_file(network_name, source_files, path);
-	}
-	*/
 	// Instead we create Cargo.toml
 	std::string code{};
 	code.append("[package]\n");

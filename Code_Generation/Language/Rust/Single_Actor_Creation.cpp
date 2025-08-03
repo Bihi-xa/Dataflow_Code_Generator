@@ -41,7 +41,7 @@ static std::pair<std::string, std::string> class_variable_generation(
 		std::string symbol_name;
 		bool const_def = false;
 		std::string tmp = Converter_RVC_Rust::convert_expression_act_var(t, *it, data.get_symbol_map(), data.get_symbol_type_map(), symbol_name, prefix, false);
-
+		// std::cout << "Symbol name : " << symbol_name << "tmp : " << tmp << std::endl;
 		actor_var_map.insert(symbol_name);
 
 		if (tmp.find_first_of(";") != tmp.find_last_of(";"))
@@ -71,7 +71,7 @@ static std::pair<std::string, std::string> class_variable_generation(
 				const_def = true;
 			}
 			else
-			{ // this is a temporal solution
+			{
 				ret.append(tmp);
 				replace_all_substrings(tmp, "\t", "");
 				// const_ret.append(tmp);
@@ -171,7 +171,6 @@ static std::string constructor_generation(
 	std::string ret;
 	std::string body;
 
-	// ret = "\t" + class_name + "(std::string _n";
 	ret = "\tpub fn new(name: &str";
 
 	for (auto it = constructor_parameter_name_type_map.begin();
@@ -186,7 +185,6 @@ static std::string constructor_generation(
 		ret.append(tmp_name + ": " + it->second);
 
 		// we need to know if the channel is a sender or receiver
-
 		std::string init_line;
 		if (used_in_channels.find(it->first) != used_in_channels.end())
 		{
@@ -215,9 +213,9 @@ static std::string constructor_generation(
 		Token t = it->get_next_token();
 		std::string symbol_name;
 		bool const_def = false;
-		// std::cout << "first token " << t.str << std::endl;
+
 		std::string tmp = Converter_RVC_Rust::convert_expression_act_var(t, *it, data.get_symbol_map(), data.get_symbol_type_map(), symbol_name, "\t\t\t", true);
-		// replace_all_substrings(tmp, "\t", "");
+
 		ret.append(tmp);
 	}
 	ret.append("\t\t\tactor_name: name.to_string(),\n");
@@ -227,6 +225,7 @@ static std::string constructor_generation(
 		ret.append("\t\t\tcurrent_state: FSM::" + actor->get_initial_state() + ",\n");
 	}
 	ret.append(body);
+	// ret.append("// constructor_code\n");
 	ret.append(data.get_constructor_code());
 	ret.append("\t\t}\n");
 	ret.append("\t}\n");
@@ -272,9 +271,6 @@ static std::string action_generation(
 		 * Hence, this might only work for SISO actors. Deactivate for now.
 		 */
 
-		 // ret += convert_action_rust(*it, (*it)->get_action_buffer(), data,
-		 // 						   false, false,
-		 // 						   unused_in_channels, unused_out_channels, prefix);
 		ret += convert_action_rust(*it, (*it)->get_action_buffer(), data,
 			true, false,
 			unused_in_channels, unused_out_channels, actor_var_map, prefix);
@@ -382,14 +378,7 @@ static std::string generate_FSM(
 
 	std::string ret;
 	ret.append("// FSM\n");
-	// if (c->get_target_language() == Target_Language::c)
-	// {
-	// 	ret.append(prefix + "typedef enum " + class_name + "_fsm {\n");
-	// }
-	// else if (c->get_target_language() == Target_Language::cpp)
-	// {
-	// 	ret.append(prefix + "enum class FSM {\n");
-	// }
+
 	// enum should be outside struct scope
 	ret.append("pub enum FSM {\n");
 
@@ -399,15 +388,7 @@ static std::string generate_FSM(
 	}
 
 	ret.append("} \n");
-	// if (c->get_target_language() == Target_Language::c)
-	// {
-	// 	ret.append(prefix + "} " + class_name + "_fsm_t;\n");
-	// }
-	// else if (c->get_target_language() == Target_Language::cpp)
-	// {
-	// 	ret.append(prefix + "};\n");
-	// 	ret.append(prefix + "FSM state = FSM::" + actor->get_initial_state() + ";\n\n");
-	// }
+
 	return ret;
 }
 
@@ -554,18 +535,16 @@ Code_Generation_Rust::generate_actor_code(
 	header_code.append("use crate::actor::Actor;\n");
 	header_code.append("use crate::channel::{ChannelReceiver, ChannelSender};\n");
 
-	if (c->get_orcc_compat())
-	{
-		// header_code.append("#include \"options.h\"\n");
-		header_code.append("mod \"options\";\n");
-	}
+	 if (c->get_orcc_compat())
+	 {
+	 	//header_code.append("#include \"options.h\"\n");
+		 header_code.append("mod \"options\";\n");
+	 }
 
 	header_code.append(generate_FSM(actor, unused_actions, class_name, "\t"));
 
-	// header_code.append("\n");
 	header_code.append(d.get_declarations_code());
 	header_code.append(convert_natives(actor));
-	// header_code.append("\n");
 
 	// Struct
 	header_code.append(d.get_var_code());
@@ -601,11 +580,9 @@ Code_Generation_Rust::generate_actor_code(
 		Tokenizer tokenizer((*it)->get_guard()); // string like "i<INPUT_SIZE"
 		Token guard_token = tokenizer.get_next_token();
 
-		// std::string tmp_guard = Converter_RVC_Rust::convert_expression(guard_token, tokenizer, d.get_symbol_map(), d.get_symbol_type_map(), actor_var_map, "");
 		std::string tmp_guard = Converter_RVC_Rust::convert_guard(guard_token, tokenizer, empty_map, actor_var_map);
-		// std::string tmp_guard = (*it)->get_guard();
+
 		guard_map[(*it)->get_function_name()] = tmp_guard;
-		// guard_map[(*it)->get_function_name()] = (*it)->get_guard();
 	}
 	header_code.append(init_action_generation(actor, d, actor_var_map, "\t"));
 	header_code.append("\n");

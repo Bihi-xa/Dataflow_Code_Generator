@@ -53,14 +53,21 @@ static std::string default_local(
 	std::string local_prefix;
 	std::string buffered_prefix = prefix;
 	bool static_rate = (input_classification != Actor_Classification::dynamic_rate);
-
 	output.append(prefix + "async fn schedule(&mut self) {\n");
-	
+	/*
+	  c/c++: it checks:
+		  if the input channels have values
+		  guards
+		  if the output channels are free
+	  rust: it checks:
+		  if the input channels have values
+		  guards
+		  additionally drop the channel sender when needed
+	*/
 	if (!fsm.empty())
 	{
 		std::string state_enum_compare;
 		std::string state_enum_assign;
-		
 
 		state_enum_compare = "FSM::";
 		state_enum_assign = "self.current_state = FSM::";
@@ -70,7 +77,7 @@ static std::string default_local(
 		for (auto it = states.begin(); it != states.end(); ++it)
 		{
 			output.append(prefix + "\t\t" + state_enum_compare + *it + " => {\n");
-			
+
 			// find actions that could be scheduled in this state
 			std::vector<std::string> schedulable_actions = find_schedulable_actions(*it, fsm, actions);
 
@@ -117,7 +124,6 @@ static std::string default_local(
 
 				if (!static_rate)
 				{
-					
 					action_condition = "true";
 				}
 
@@ -146,11 +152,12 @@ static std::string default_local(
 
 				output.append(local_prefix + "}\n");
 			}
-			
+
 			if (tmp_match_val != "")
 			{
 				output.append(prefix + "\t\t\t\t}\n");
 				output.append(prefix + "\t\t\t\t_ => {\n");
+				output.append(local_prefix + "println!(\"{} finished running!\", self.actor_name);\n");
 				output.append(local_prefix + "self.done = true;\n");
 				// this drops the channel sender
 				for (auto it = action_freeSpaceCondition_map.begin(); it != action_freeSpaceCondition_map.end(); ++it)
@@ -162,27 +169,16 @@ static std::string default_local(
 					}
 				}
 
-				
+				// output.append(local_prefix + action_freeSpaceCondition_map[*it] + "\n");
 				output.append(prefix + "\t\t\t\t}\n");
 				output.append(prefix + "\t\t\t}\n");
 			}
 			output.append(prefix + "\t\t" + "}\n"); // close current state
-			
-
-
 		}
 		output.append(prefix + "\t}\n"); // close state checking match
 	}
 	else
-	{ /*
-	  c/c++: it checks:
-		  if the input channels have values
-		  guards
-		  if the output channels are free
-	  rust: it checks:
-		  if the input channels have values
-		  guards
-	  */
+	{
 		std::vector<std::string> schedulable_actions = find_schedulable_actions("", fsm, actions);
 		if (!priorities.empty())
 		{
@@ -220,7 +216,6 @@ static std::string default_local(
 			if (!static_rate)
 			{
 				action_condition = "true";
-				
 			}
 			if (it == schedulable_actions.begin())
 			{
@@ -241,54 +236,48 @@ static std::string default_local(
 			{
 				output.append(local_prefix + "else if (" + action_condition + ") {\n");
 			}
-			if (action_freeSpaceCondition_map[*it].empty())
-			{ // Last actor; not channel sender
-				output.append(local_prefix + "\tself." + *it + "(" + get_action_in_parameters(*it, actions) + ").await; \n");
-				
-				if (!action_post_exec_code_map[*it].empty())
-				{
-					std::string t = action_post_exec_code_map[*it];
-					replace_all_substrings(t, "\t", local_prefix + "\t");
-					output.append(t);
-				}
-			}
-			else
+			// Last actor; not channel sender
+			output.append(local_prefix + "\tself." + *it + "(" + get_action_in_parameters(*it, actions) + ").await; \n");
+			if (!action_post_exec_code_map[*it].empty())
 			{
-				
-				output.append(local_prefix + "\tself." + *it + "(" + get_action_in_parameters(*it, actions) + ").await; \n");
-				
-				if (!action_post_exec_code_map[*it].empty())
-				{
-					std::string t = action_post_exec_code_map[*it];
-					replace_all_substrings(t, "\t", local_prefix + "\t\t");
-					output.append(t);
-				}
-				
+				std::string t = action_post_exec_code_map[*it];
+				replace_all_substrings(t, "\t", local_prefix + "\t");
+				output.append(t);
 			}
-			
+
 			if (action_schedulingCondition_map[schedulable_actions.front()] != "true")
 			{
 				output.append(local_prefix + "}\n");
 				output.append(prefix + "\t\t}\n");
 				output.append(prefix + "\t\t_ => {\n");
+				output.append(local_prefix + "println!(\"{} finished running!\", self.actor_name);\n");
 				output.append(local_prefix + "self.done = true;\n");
 				// this drops the channel sender
 				// TODO: local_prefix shoudl be asigned to each droped sender and not only once
 				output.append(local_prefix + action_freeSpaceCondition_map[*it] + "\n");
-				
+				// for (auto ch_it = action_freeSpaceCondition_map.begin(); ch_it != action_freeSpaceCondition_map.end(); ++ch_it)
+				// {
+
+				// 	std::cout << "Key: " << ch_it->first << ", Value: " << ch_it->second << std::endl;
+				// }
 				output.append(prefix + "\t\t}\n");
 				output.append(prefix + "\t}\n");
 			}
 			else
 			{
+
 				output.append(local_prefix + "} else {\n");
+				output.append(local_prefix + "\tprintln!(\"{} finished running!\", self.actor_name);\n");
 				output.append(local_prefix + "\tself.done = true;\n");
 				output.append(local_prefix + "\t" + action_freeSpaceCondition_map[*it] + "\n");
 				output.append(prefix + "\t}\n");
 			}
 		}
-		
-		
+
+		// if (static_rate)
+		// {
+
+		// }
 	}
 
 	output.append(prefix + "}\n"); // close scheduler method
@@ -344,10 +333,6 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 			action_it != actions.end(); ++action_it)
 		{
 			std::map<std::string, std::string> replacement_map;
-			if (c->get_target_language() == Target_Language::c)
-			{
-				replacement_map = conversion_data.get_replacement_map();
-			}
 
 			for (auto sched_data_it = action_it->second.begin();
 				sched_data_it != action_it->second.end(); ++sched_data_it)
@@ -425,10 +410,6 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 				for (auto action_it = state_it->second.begin(); action_it != state_it->second.end(); ++action_it)
 				{
 					std::map<std::string, std::string> replacement_map;
-					if (c->get_target_language() == Target_Language::c)
-					{
-						replacement_map = conversion_data.get_replacement_map();
-					}
 
 					for (auto sched_data_it = actions[*action_it].begin();
 						sched_data_it != actions[*action_it].end(); ++sched_data_it)
@@ -528,10 +509,6 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 				action_it != actions.end(); ++action_it)
 			{
 				std::map<std::string, std::string> replacement_map;
-				if (c->get_target_language() == Target_Language::c)
-				{
-					replacement_map = conversion_data.get_replacement_map();
-				}
 
 				for (auto sched_data_it = action_it->second.begin();
 					sched_data_it != action_it->second.end(); ++sched_data_it)
@@ -700,59 +677,59 @@ std::string Scheduling::generate_local_scheduler_rust(
 		}
 	}
 
-	if (c->get_optimize_scheduling())
-	{
-		std::set<std::string> in_channels;
-		std::set<std::string> out_channels;
-		for (auto action_it = actions.begin(); action_it != actions.end(); ++action_it)
-		{
-			for (auto sched_data_it = action_it->second.begin();
-				sched_data_it != action_it->second.end();
-				++sched_data_it)
-			{
-				if (sched_data_it->unused_channel)
-				{
-					continue;
-				}
-				if (sched_data_it->in)
-				{
-					if (in_channels.find(sched_data_it->channel_name) == in_channels.end())
-					{
-						in_channels.insert(sched_data_it->channel_name);
-					}
-				}
-				else
-				{
-					if (out_channels.find(sched_data_it->channel_name) == out_channels.end())
-					{
-						out_channels.insert(sched_data_it->channel_name);
-					}
-				}
-			}
-		}
-		for (auto it = in_channels.begin(); it != in_channels.end(); ++it)
-		{
-			std::string tmp;
-			ABI_CHANNEL_SIZE(c, tmp, *it)
-				sched_loop.append(prefix + "\tunsigned " + *it + "_size = " + tmp + ";\n");
-		}
-		for (auto it = out_channels.begin(); it != out_channels.end(); ++it)
-		{
-			std::string tmp;
-			ABI_CHANNEL_FREE(c, tmp, *it)
-				sched_loop.append(prefix + "\tunsigned " + *it + "_free = " + tmp + ";\n");
-		}
-		sched_loop.append("\n");
-	}
+	// if (c->get_optimize_scheduling())
+	// {
+	// 	std::set<std::string> in_channels;
+	// 	std::set<std::string> out_channels;
+	// 	for (auto action_it = actions.begin(); action_it != actions.end(); ++action_it)
+	// 	{
+	// 		for (auto sched_data_it = action_it->second.begin();
+	// 			 sched_data_it != action_it->second.end();
+	// 			 ++sched_data_it)
+	// 		{
+	// 			if (sched_data_it->unused_channel)
+	// 			{
+	// 				continue;
+	// 			}
+	// 			if (sched_data_it->in)
+	// 			{
+	// 				if (in_channels.find(sched_data_it->channel_name) == in_channels.end())
+	// 				{
+	// 					in_channels.insert(sched_data_it->channel_name);
+	// 				}
+	// 			}
+	// 			else
+	// 			{
+	// 				if (out_channels.find(sched_data_it->channel_name) == out_channels.end())
+	// 				{
+	// 					out_channels.insert(sched_data_it->channel_name);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// 	for (auto it = in_channels.begin(); it != in_channels.end(); ++it)
+	// 	{
+	// 		std::string tmp;
+	// 		ABI_CHANNEL_SIZE(c, tmp, *it)
+	// 		sched_loop.append(prefix + "\tunsigned " + *it + "_size = " + tmp + ";\n");
+	// 	}
+	// 	for (auto it = out_channels.begin(); it != out_channels.end(); ++it)
+	// 	{
+	// 		std::string tmp;
+	// 		ABI_CHANNEL_FREE(c, tmp, *it)
+	// 		sched_loop.append(prefix + "\tunsigned " + *it + "_free = " + tmp + ";\n");
+	// 	}
+	// 	sched_loop.append("\n");
+	// }
 
-	if (scheduling_loop_bound != 0)
-	{
-		sched_loop.append(prefix + "\tfor (unsigned sched_loops = 0; sched_loops < " + std::to_string(scheduling_loop_bound) + "; ++sched_loops) {\n");
-	}
-	else
-	{
-		sched_loop.append(prefix + "\tfor (;;) {\n");
-	}
+	// if (scheduling_loop_bound != 0)
+	// {
+	// 	sched_loop.append(prefix + "\tfor (unsigned sched_loops = 0; sched_loops < " + std::to_string(scheduling_loop_bound) + "; ++sched_loops) {\n");
+	// }
+	// else
+	// {
+	// 	sched_loop.append(prefix + "\tfor (;;) {\n");
+	// }
 
 	// init with empty first so we don't need to care later and keep the guarantee that every action is in there
 	for (auto it = actions.begin(); it != actions.end(); ++it)
@@ -782,20 +759,20 @@ std::string Scheduling::generate_local_scheduler_rust(
 				{
 					action_schedulingCondition_map[action_it->first].append(", ");
 				}
-				if (c->get_optimize_scheduling())
-				{
-					action_schedulingCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_size >= " + std::to_string(sched_data_it->elements) + ")");
-					action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_size -= " + std::to_string(sched_data_it->elements) + ";\n");
-				}
-				else
-				{
-					std::string tmp;
-					// ABI_CHANNEL_SIZE(c, tmp, sched_data_it->channel_name)
-					// action_schedulingCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
-					ABI_CHANNEL_READ(c, tmp, sched_data_it->channel_name)
-						action_schedulingCondition_map[action_it->first].append(tmp);
-					// std::cout << tmp << std::endl;
-				}
+				// if (c->get_optimize_scheduling())
+				// {
+				// 	action_schedulingCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_size >= " + std::to_string(sched_data_it->elements) + ")");
+				// 	action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_size -= " + std::to_string(sched_data_it->elements) + ";\n");
+				// }
+				// else
+				// {
+				std::string tmp;
+				// ABI_CHANNEL_SIZE(c, tmp, sched_data_it->channel_name)
+				// action_schedulingCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
+				ABI_CHANNEL_READ(c, tmp, sched_data_it->channel_name)
+					action_schedulingCondition_map[action_it->first].append(tmp);
+				// std::cout << tmp << std::endl;
+				// }
 			}
 			else
 			{
@@ -804,18 +781,18 @@ std::string Scheduling::generate_local_scheduler_rust(
 					// normaly we should just have one channel sender but incase
 					action_freeSpaceCondition_map[action_it->first].append("\n");
 				}
-				if (c->get_optimize_scheduling())
-				{
-					action_freeSpaceCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_free >= " + std::to_string(sched_data_it->elements) + ")");
-					action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_free -= " + std::to_string(sched_data_it->elements) + ";\n");
-				}
-				else
-				{
-					// std::string tmp;
-					// ABI_CHANNEL_FREE(c, tmp, sched_data_it->channel_name)
-					// action_freeSpaceCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
-					action_freeSpaceCondition_map[action_it->first].append("self." + sched_data_it->channel_name + " = None;");
-				}
+				// if (c->get_optimize_scheduling())
+				// {
+				// 	action_freeSpaceCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_free >= " + std::to_string(sched_data_it->elements) + ")");
+				// 	action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_free -= " + std::to_string(sched_data_it->elements) + ";\n");
+				// }
+				// else
+				// {
+				// std::string tmp;
+				// ABI_CHANNEL_FREE(c, tmp, sched_data_it->channel_name)
+				// action_freeSpaceCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
+				action_freeSpaceCondition_map[action_it->first].append("self." + sched_data_it->channel_name + " = None;");
+				// }
 			}
 		}
 		if (action_schedulingCondition_map[action_it->first].empty())

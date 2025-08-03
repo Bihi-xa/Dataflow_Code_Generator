@@ -48,22 +48,43 @@ static std::string basic_non_preemptive(
 	if (c->get_sched_non_preemptive())
 	{
 		result.append("\t// Non-Preemtive Scheduling\n");
-		result.append("\tlet handles: Vec<JoinHandle<()>> = vec![\n");
+		// result.append("\tlet handles: Vec<JoinHandle<()>> = vec![\n");
 
+		// for (auto it = actors.begin(); it != actors.end(); ++it)
+		// {
+		// 	result.append("\t\ttokio::spawn(async move {\n");
+		// 	result.append("\t\t\twhile !" + *it + ".is_done() { \n");
+		// 	result.append("\t\t\t\t" + *it + ".schedule().await;\n");
+		// 	result.append("\t\t\t}\n");
+		// 	result.append("\t\t}),\n");
+		// }
+		// result.append("\t];\n\n");
+
+		// result.append("\t// Wait for all actor tasks to finish\n");
+		// result.append("\tfor handle in handles {\n");
+		// result.append("\t\thandle.await.unwrap();\n");
+		// result.append("\t}\n");
+		// result.append("\tprintln!(\"all done!\");\n");
+
+		std::string unwrap;
+		int counter_tmp = 0;
 		for (auto it = actors.begin(); it != actors.end(); ++it)
 		{
-			result.append("\t\ttokio::spawn(async move {\n");
-			result.append("\t\t\twhile !" + *it + ".is_done() { \n");
-			result.append("\t\t\t\t" + *it + ".schedule().await;\n");
-			result.append("\t\t\t}\n");
-			result.append("\t\t}),\n");
-		}
-		result.append("\t];\n\n");
+			counter_tmp++;
+			std::string task_name = std::to_string(counter_tmp);
+			result.append("\t\tlet task" + task_name + " = tokio::task::spawn_blocking(move || {\n");
+			result.append("\t\t\ttokio::runtime::Runtime::new().unwrap().block_on(async {\n");
+			result.append("\t\t\t\twhile !" + *it + ".is_done() {\n");
+			result.append("\t\t\t\t\t" + *it + ".schedule().await;\n");
+			result.append("\t\t\t\t}\n");
+			result.append("\t\t\t});\n");
+			result.append("\t\t});\n");
 
-		result.append("\t// Wait for all actor tasks to finish\n");
-		result.append("\tfor handle in handles {\n");
-		result.append("\t\thandle.await.unwrap();\n");
-		result.append("\t}\n");
+			unwrap.append("\t\ttask" + task_name + ".await.unwrap();\n");
+		}
+
+		result.append("\n");
+		result.append(unwrap);
 		result.append("\tprintln!(\"all done!\");\n");
 	}
 	else if (c->get_sched_rr())
@@ -121,10 +142,10 @@ static std::string basic_non_preemptive(
 		result.append("\t}\n");
 	}
 
-	for (unsigned i = 0; i < c->get_cores(); ++i)
-	{
-		global_scheduling_routines.push_back("global_scheduler");
-	}
+	// for (unsigned i = 0; i < c->get_cores(); ++i)
+	// {
+	// 	global_scheduling_routines.push_back("global_scheduler");
+	// }
 
 	return result;
 }

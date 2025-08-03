@@ -15,6 +15,24 @@
 */
 namespace Converter_RVC_Rust
 {
+	std::string convert_List_comp_act_var(
+		Token& t,
+		Token_Container& token_producer,
+		std::map<std::string, std::string>& global_map,
+		std::map<std::string, std::string>& local_map);
+
+	std::string convert_list_act_var(
+		Token& t,
+		Token_Container& token_producer,
+		std::map<std::string, std::string>& global_map,
+		std::map<std::string, std::string>& local_map,
+		std::map<std::string, std::string>& symbol_type_map,
+		std::set<std::string>& actor_var_map,
+		std::string& symbol_name,
+		std::string symbol,
+		std::string prefix,
+		bool in_constructor);
+
 	std::string convert_guard(
 		Token& t,
 		Token_Container& token_producer,
