@@ -16,45 +16,45 @@
 namespace Converter_RVC_Rust
 {
 	std::string convert_List_comp_act_var(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map);
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map);
 
 	std::string convert_list_act_var(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
-		std::string& symbol_name,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
+		std::string &symbol_name,
 		std::string symbol,
 		std::string prefix,
 		bool in_constructor);
 
 	std::string convert_guard(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::set<std::string>& actor_var_map);
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::set<std::string> &actor_var_map);
 
 	std::string convert_expression_act_var(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::string& symbol_name,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::string &symbol_name,
 		std::string prefix,
 		bool in_constructor);
 
 	std::string convert_expression_act_var(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::string& symbol_name,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::string &symbol_name,
 		std::string symbol,
 		bool return_statement,
 		std::string prefix,
@@ -72,11 +72,11 @@ namespace Converter_RVC_Rust
 		The global map hasn't changed. The function returns the converted code if the symbol is a * or equal to the function name.
 	*/
 	std::string convert_function(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "",
 		std::string symbol = "*");
 
@@ -93,11 +93,11 @@ namespace Converter_RVC_Rust
 		The global map hasn't changed. The function returns the converted code if the symbol is a * or equal to the procedure name.
 	*/
 	std::string convert_procedure(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "",
 		std::string symbol = "*");
 
@@ -115,12 +115,12 @@ namespace Converter_RVC_Rust
 		The function returns the generated code in a string.
 	*/
 	std::string convert_if(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		bool return_statement = false,
 		std::string prefix = "",
 		bool nested = false);
@@ -141,12 +141,12 @@ namespace Converter_RVC_Rust
 		The generated C++ code is returned.
 	*/
 	std::string convert_for(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		bool return_statement = false,
 		std::string prefix = "");
 
@@ -166,12 +166,12 @@ namespace Converter_RVC_Rust
 		The generated C++ code is returned.
 	*/
 	std::string convert_while(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		bool return_statement = false,
 		std::string prefix = "");
 
@@ -189,12 +189,12 @@ namespace Converter_RVC_Rust
 		The generated C++ code is returned in string object.
 	*/
 	std::string convert_expression(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
-		std::string& symbol_name,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
+		std::string &symbol_name,
 		std::string prefix = "");
 
 	/*
@@ -216,13 +216,13 @@ namespace Converter_RVC_Rust
 		The generated C++ code is returned in string object.
 	*/
 	std::string convert_expression(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
-		std::string& symbol_name,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
+		std::string &symbol_name,
 		std::string symbol = "*",
 		bool return_statement = false,
 		std::string prefix = "");
@@ -240,11 +240,11 @@ namespace Converter_RVC_Rust
 	The generated C++ code is returned in string object.
 */
 	std::string convert_expression(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "");
 
 	/*
@@ -265,12 +265,12 @@ namespace Converter_RVC_Rust
 		The generated C++ code is returned in string object.
 	*/
 	std::string convert_expression(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string symbol = "*",
 		bool return_statement = false,
 		std::string prefix = "");
@@ -290,11 +290,11 @@ namespace Converter_RVC_Rust
 		The generated code is returned as a string.
 	*/
 	std::string convert_list(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "");
 
 	/*
@@ -315,12 +315,12 @@ namespace Converter_RVC_Rust
 		The generated code is returned as a string.
 	*/
 	std::string convert_list(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
+		std::set<std::string> &actor_var_map,
 		std::string symbol = "*",
 		std::string prefix = "");
 
@@ -335,9 +335,9 @@ namespace Converter_RVC_Rust
 		This type is returned in a string.
 	*/
 	std::string convert_type(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map);
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map);
 
 	/*
 		Function to convert a RVC type to a C++ type.
@@ -351,10 +351,10 @@ namespace Converter_RVC_Rust
 		This type is returned in a string.
 	*/
 	std::string convert_type(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map);
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map);
 
 	/*
 		Function return a variable name that is not present in one of the maps.
@@ -365,8 +365,8 @@ namespace Converter_RVC_Rust
 		name collisions.
 	*/
 	std::string find_unused_name(
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map);
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map);
 
 	/*
 		Function to skip a native function or procedure declaration.
@@ -380,16 +380,16 @@ namespace Converter_RVC_Rust
 		If yes, the native flag is set to true and the name of the function/procedure is inserted into the global map (if given).
 	*/
 	std::string convert_native_declaration(
-		Token& t,
-		Token_Container& token_producer,
+		Token &t,
+		Token_Container &token_producer,
 		std::string symbol,
-		Actor_Conversion_Data& actor_conversion_data);
+		Actor_Conversion_Data &actor_conversion_data);
 	std::string convert_native_declaration(
-		Token& t,
-		Token_Container& token_producer,
+		Token &t,
+		Token_Container &token_producer,
 		std::string symbol,
-		Actor_Conversion_Data& actor_conversion_data,
-		std::map<std::string, std::string>& global_map);
+		Actor_Conversion_Data &actor_conversion_data,
+		std::map<std::string, std::string> &global_map);
 
 	/*
 		Function to an expression in a string. Returns an int with the result.
@@ -401,8 +401,8 @@ namespace Converter_RVC_Rust
 	*/
 	int evaluate_constant_expression(
 		std::string expression,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map);
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map);
 
 	/*
 		Function to get bracket expression. Returns the expression as string and a boolean if it contains a list comprehension as a pair.
@@ -416,11 +416,11 @@ namespace Converter_RVC_Rust
 
 	*/
 	std::pair<std::string, bool> convert_brackets(
-		Token& t,
-		Token_Container& token_producer,
+		Token &t,
+		Token_Container &token_producer,
 		bool is_list, // is_list => rvalue
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
 		std::string prefix = "");
 
 	/*
@@ -431,8 +431,8 @@ namespace Converter_RVC_Rust
 		Returns the expression in C++ syntax in a string and a bool if it contains a list assignment.(true if yes)
 	*/
 	std::pair<std::string, bool> convert_inline_if(
-		Token& t,
-		Token_Container& token_producer);
+		Token &t,
+		Token_Container &token_producer);
 
 	/*
 		Function to convert an inline if expression with a list assignment to C++ code.
@@ -446,9 +446,9 @@ namespace Converter_RVC_Rust
 	*/
 	std::string convert_inline_if_with_list_assignment(
 		std::string string_to_convert,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& local_map,
-		std::map<std::string, std::string>& symbol_type_map,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &local_map,
+		std::map<std::string, std::string> &symbol_type_map,
 		std::string prefix,
 		std::string outer_expression);
 
@@ -457,12 +457,12 @@ namespace Converter_RVC_Rust
 	 * adds them to the global symbol map of the actor and the name-type map of the actor.
 	 */
 	std::string convert_actor_parameters(
-		Token& t,
-		Token_Container& token_producer,
-		std::map<std::string, std::string>& global_map,
-		std::map<std::string, std::string>& name_type_map,
-		std::map<std::string, std::string>& default_value_map,
-		std::set<std::string>& actor_var_map,
+		Token &t,
+		Token_Container &token_producer,
+		std::map<std::string, std::string> &global_map,
+		std::map<std::string, std::string> &name_type_map,
+		std::map<std::string, std::string> &default_value_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "");
 
 }

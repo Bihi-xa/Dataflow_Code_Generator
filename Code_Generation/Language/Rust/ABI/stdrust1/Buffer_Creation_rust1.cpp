@@ -1,5 +1,5 @@
 #include "Code_Generation/Code_Generation.hpp"
-#include "ABI_stdrust.hpp"
+#include "ABI_stdrust1.hpp"
 #include "Config/config.h"
 #include "Config/debug.h"
 #include <string>
@@ -9,8 +9,9 @@
 /* Generate the file Channel.hpp containing the Channel base class, the data channel derived class
  * and if required the control channel derived class that is not carring data explicitly.
  */
-std::string channel =
-"use tokio::sync::mpsc::{self, Receiver, Sender};\n\n"
+std::string mpsc_channel =
+"use tokio::sync::mpsc::{self, Receiver, Sender};\n"
+"\n"
 "#[derive(Clone)]\n"
 "pub struct ChannelSender<T> {\n"
 "    sender: Sender<T>,\n"
@@ -25,8 +26,8 @@ std::string channel =
 "pub fn new_channel<T>(max_size: usize) -> (ChannelSender<T>, ChannelReceiver<T>) {\n"
 "    let (sender, receiver) = mpsc::channel(max_size);\n"
 "    (\n"
-"        ChannelSender { sender, max_size },\n"
-"        ChannelReceiver { receiver, max_size },\n"
+"        ChannelSender { sender, max_size,  },\n"
+"        ChannelReceiver { receiver, max_size,},\n"
 "    )\n"
 "}\n"
 "\n"
@@ -36,24 +37,40 @@ std::string channel =
 "            println!(\"Failed to send data to channel!\");\n"
 "        }\n"
 "    }\n"
+"\n"
+"    pub fn free(&self) -> usize {\n"
+"        self.sender.capacity()\n"
+"    }\n"
 "}\n"
 "\n"
 "impl<T> ChannelReceiver<T> {\n"
 "    pub async fn read(&mut self) -> Option<T> {\n"
-"        self.receiver.recv().await\n"
+"        let value = self.receiver.recv().await;\n"
+"        value\n"
 "    }\n"
 "\n"
-"    pub fn free(&self) -> usize {\n"
-"        self.max_size - self.receiver.len()\n"
+"    pub fn try_read(&mut self) -> Option<T> {\n"
+"        self.receiver.try_recv().ok()\n"
+"    }\n"
+"    pub fn size(&self) -> usize {\n"
+"        self.receiver.len()\n"
 "    }\n"
 "\n"
 "    pub fn max_size(&self) -> usize {\n"
 "        self.max_size\n"
 "    }\n"
+"\n"
+"    pub fn is_terminated(&self) -> bool {\n"
+"        self.receiver.is_closed()\n"
+"    }\n"
+"\n"
+"    pub fn is_empty(&self) -> bool {\n"
+"        self.receiver.len() == 0\n"
+"    }\n"
 "}\n";
 
-std::pair<ABI_stdrust::Header, ABI_stdrust::Source>
-ABI_stdrust::generate_channel_code(bool cntrl_chan)
+std::pair<ABI_stdrust1::Header, ABI_stdrust1::Source>
+ABI_stdrust1::generate_channel_code(bool cntrl_chan)
 {
     Config* c = c->getInstance();
 
@@ -66,14 +83,14 @@ ABI_stdrust::generate_channel_code(bool cntrl_chan)
     {
         throw Code_Generation::Code_Generation_Exception{ "Cannot open the file " + path.string() };
     }
-    output_file << channel;
+    output_file << mpsc_channel;
 
     output_file.close();
 
     return std::make_pair("channel.rs", "");
 }
 
-std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl(
+std::pair<std::string, ABI_stdrust1::Impl_Type> ABI_stdrust1::channel_decl(
     std::string channel_name,
     std::string size,
     std::string type,
@@ -89,7 +106,7 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl(
     return std::make_pair(p1, p2);
 }
 
-std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_sen(
+std::pair<std::string, ABI_stdrust1::Impl_Type> ABI_stdrust1::channel_decl_sen(
     std::string channel_name,
     std::string size,
     std::string type,
@@ -105,7 +122,7 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_sen(
     return std::make_pair(p1, p2);
 }
 
-std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_rec(
+std::pair<std::string, ABI_stdrust1::Impl_Type> ABI_stdrust1::channel_decl_rec(
     std::string channel_name,
     std::string size,
     std::string type,
@@ -121,7 +138,7 @@ std::pair<std::string, ABI_stdrust::Impl_Type> ABI_stdrust::channel_decl_rec(
     return std::make_pair(p1, p2);
 }
 // it needs 2 arguments instead of channel_name ; (sender,reciever)
-std::string ABI_stdrust::channel_init(
+std::string ABI_stdrust1::channel_init(
     std::string channel_sender,
     std::string channel_receiver,
     Impl_Type t,
@@ -134,7 +151,7 @@ std::string ABI_stdrust::channel_init(
     return r;
 }
 
-std::string ABI_stdrust::channel_read(
+std::string ABI_stdrust1::channel_read(
     std::string channel)
 {
     std::string name = (channel == "in") ? "input" : channel;
@@ -142,7 +159,7 @@ std::string ABI_stdrust::channel_read(
     return "self." + name + ".read().await";
 }
 
-std::string ABI_stdrust::channel_write(
+std::string ABI_stdrust1::channel_write(
     std::string var,
     std::string channel,
     std::string prefix)
@@ -155,22 +172,29 @@ std::string ABI_stdrust::channel_write(
     return result;
 }
 // no use atm
-std::string ABI_stdrust::channel_prefetch(
+std::string ABI_stdrust1::channel_prefetch(
     std::string channel,
     std::string offset)
 {
+    std::string name = (channel == "in") ? "input" : channel;
     // return channel + "->preview(" + offset + ")";
-    return "";
+    return "self." + name + ".try_read()";
 }
 
-std::string ABI_stdrust::channel_size(
+std::string ABI_stdrust1::channel_size(
     std::string channel)
 {
-    return channel + ".max_size().await";
+    std::string name = (channel == "in") ? "input" : channel;
+    return "self." + name + ".size()";
 }
 
-std::string ABI_stdrust::channel_free(
+std::string ABI_stdrust1::channel_free(
     std::string channel)
 {
-    return channel + ".free().await";
+    std::string output;
+    std::string name = (channel == "in") ? "input" : channel;
+    output.append("if let Some(ref sender) = self." + name + " {\n");
+    output.append("\tif sender.free()");
+    return output;
+    // return "self." + channel + ".free()";
 }

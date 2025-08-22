@@ -1,32 +1,35 @@
 #pragma once
 
-#include "stdrust/ABI_stdrust.hpp"
+#include "stdrust1/ABI_stdrust1.hpp"
+#include "stdrust2/ABI_stdrust2.hpp"
 
 #define ABI_OP_ASGN(enum_val, ret, namespace_val, op_val, ...) \
 	case Target_ABI::##enum_val:                               \
 		(ret) = namespace_val::##op_val(__VA_ARGS__);          \
 		break;
 
-#define ABI_ALL_ASGN(conf, ret, op_val, ...)                         \
-	switch ((conf)->get_target_ABI())                                \
-	{                                                                \
-		ABI_OP_ASGN(stdrust, ret, ABI_stdrust, op_val, __VA_ARGS__); \
-	default:                                                         \
-		std::cout << "Unknown ABI...exiting." << std::endl;          \
-		exit(33);                                                    \
+#define ABI_ALL_ASGN(conf, ret, op_val, ...)                           \
+	switch ((conf)->get_target_ABI())                                  \
+	{                                                                  \
+		ABI_OP_ASGN(stdrust1, ret, ABI_stdrust1, op_val, __VA_ARGS__); \
+		ABI_OP_ASGN(stdrust2, ret, ABI_stdrust2, op_val, __VA_ARGS__); \
+	default:                                                           \
+		std::cout << "Unknown ABI...exiting." << std::endl;            \
+		exit(33);                                                      \
 	}
 
 #define ABI_OP_RET(enum_val, namespace_val, op_val, ...) \
 	case Target_ABI::##enum_val:                         \
 		return namespace_val::##op_val(__VA_ARGS__);
 
-#define ABI_ALL_RET(conf, op_val, ...)                        \
-	switch ((conf)->get_target_ABI())                         \
-	{                                                         \
-		ABI_OP_RET(stdrust, ABI_stdrust, op_val, __VA_ARGS__) \
-	default:                                                  \
-		std::cout << "Unknown ABI...exiting." << std::endl;   \
-		exit(33);                                             \
+#define ABI_ALL_RET(conf, op_val, ...)                          \
+	switch ((conf)->get_target_ABI())                           \
+	{                                                           \
+		ABI_OP_RET(stdrust1, ABI_stdrust1, op_val, __VA_ARGS__) \
+		ABI_OP_RET(stdrust2, ABI_stdrust2, op_val, __VA_ARGS__) \
+	default:                                                    \
+		std::cout << "Unknown ABI...exiting." << std::endl;     \
+		exit(33);                                               \
 	}
 
 #define ABI_ATOMIC_HEADER(conf, ret) ABI_ALL_ASGN(conf, ret, atomic_include)

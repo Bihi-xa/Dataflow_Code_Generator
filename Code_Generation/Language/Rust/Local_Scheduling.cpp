@@ -3,11 +3,14 @@
 #include "Config/debug.h"
 #include "Config/config.h"
 #include <algorithm>
+#include <iostream>
+#include <vector>
+#include <sstream>
 #include <tuple>
 #include "String_Helper.h"
 #include "ABI/abi.hpp"
 
-static std::string transform_string(const std::string& input)
+static std::string transform_string(const std::string &input)
 {
 	std::vector<std::string> parts;
 	std::stringstream ss(input);
@@ -31,39 +34,39 @@ static std::string transform_string(const std::string& input)
 	return result;
 }
 static std::string default_local(
-	std::map<std::string, std::vector<Scheduling::Channel_Schedule_Data>>& actions,
-	std::vector<IR::FSM_Entry>& fsm,
-	std::vector<IR::Priority_Entry>& priorities,
+	std::map<std::string, std::vector<Scheduling::Channel_Schedule_Data>> &actions,
+	std::vector<IR::FSM_Entry> &fsm,
+	std::vector<IR::Priority_Entry> &priorities,
 	Actor_Classification input_classification,
 	Actor_Classification output_classification,
 	std::string prefix,
 	// maps method names to their scheduling condition: guards and size and free space in the FIFOs
-	std::map<std::string, std::string>& action_guard,
-	std::map<std::string, std::string>& action_schedulingCondition_map,
-	std::map<std::string, std::string>& action_freeSpaceCondition_map,
-	std::map<std::string, std::string>& state_channel_access,
-	std::map<std::string, std::string>& action_post_exec_code_map,
+	std::map<std::string, std::string> &action_guard,
+	std::map<std::string, std::string> &action_schedulingCondition_map,
+	std::map<std::string, std::vector<std::string>> &channel_read_map,
+	std::map<std::string, std::string> &action_freeSpaceCondition_map,
+	std::map<std::string, std::string> &droping_channel_sender,
+	std::map<std::string, std::string> &cond_receiver_map,
+	std::map<std::string, std::set<std::string>> &action_param_read,
+	std::map<std::string, std::string> &state_channel_access,
+	std::map<std::string, std::string> &action_post_exec_code_map,
 	std::string loop_exp,
 	bool round_robin,
 	std::string schedule_function_name,
 	std::string schedule_function_parameter)
 {
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 	std::string output{};
 	std::string local_prefix;
 	std::string buffered_prefix = prefix;
 	bool static_rate = (input_classification != Actor_Classification::dynamic_rate);
+
 	output.append(prefix + "async fn schedule(&mut self) {\n");
-	/*
-	  c/c++: it checks:
-		  if the input channels have values
-		  guards
-		  if the output channels are free
-	  rust: it checks:
-		  if the input channels have values
-		  guards
-		  additionally drop the channel sender when needed
-	*/
+
+	if (!round_robin)
+	{
+		output.append(prefix + "\tloop {\n");
+	}
 	if (!fsm.empty())
 	{
 		std::string state_enum_compare;
@@ -74,17 +77,555 @@ static std::string default_local(
 		std::set<std::string> states = Scheduling::get_all_states(fsm);
 
 		output.append(prefix + "\tmatch self.current_state {\n");
+
+		for (auto it = states.begin(); it != states.end(); ++it)
+		{
+			// string containing termination conditions
+			std::string cond_receiver_map_str = "";
+
+			output.append(prefix + "\t\t" + state_enum_compare + *it + " => {\n");
+
+			// find actions that could be scheduled in this state
+			std::vector<std::string> schedulable_actions = find_schedulable_actions(*it, fsm, actions);
+			// sort the list of schedulable actions with the comparsion function defined above if a priority block is defined
+			if (!priorities.empty())
+			{
+				std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{priorities});
+			}
+			if (static_rate)
+			{
+				std::string channel_prefetch = state_channel_access[*it];
+				replace_all_substrings(channel_prefetch, "\t", prefix + "\t\t\t");
+				output.append(prefix + "\t\tif (" + action_schedulingCondition_map[schedulable_actions.front()] + ") {\n");
+				output.append(channel_prefetch);
+				local_prefix = prefix + "\t\t\t";
+			}
+			else
+			{
+				local_prefix = prefix + "\t\t\t";
+			}
+			std::vector<std::string> schedulable_actions_tmp = find_schedulable_actions("", fsm, actions);
+
+			// create condition test and scheduling for each schedulable action
+			for (auto action_it = schedulable_actions.begin();
+				 action_it != schedulable_actions.end(); ++action_it)
+			{
+
+				std::string action_condition = action_guard[*action_it];
+				if (!static_rate)
+				{
+					std::string tmp = action_schedulingCondition_map[*action_it];
+
+					bool cond_non_true = action_condition != "true" && action_condition != "(true)";
+					bool sched_non_true = tmp != "true" && tmp != "(true)";
+
+					if (cond_non_true && sched_non_true)
+					{
+						tmp.append(" && ");
+						tmp.append(action_condition);
+						action_condition = tmp;
+					}
+					else if (sched_non_true)
+					{
+						action_condition = tmp;
+					}
+				}
+
+				if (action_it == schedulable_actions.begin())
+				{
+					output.append(local_prefix + "if (" + action_condition + ") {\n");
+				}
+				else
+				{
+					output.append(local_prefix + "} else if (" + action_condition + ") {\n");
+				}
+
+				if (!action_freeSpaceCondition_map[*action_it].empty())
+				{
+					output.append(local_prefix + "\t" + action_freeSpaceCondition_map[*action_it] + "\n");
+				}
+
+				std::string pass_param;
+				int match_counter = 0;
+
+				if (action_param_read.find(*action_it) != action_param_read.end())
+				{
+					const auto &params = action_param_read[*action_it];
+					
+					for (const auto &p : params)
+					{
+
+						if (channel_read_map.find(*action_it) != channel_read_map.end() && channel_read_map[*action_it].size() >= match_counter + 1)
+						{
+							output.append(local_prefix + "match (" + channel_read_map[*action_it][match_counter] + ") {\n");
+							local_prefix.append("\t");
+							output.append(local_prefix + "(Some(" + p + ")) => {\n");
+							local_prefix.append("\t");
+						}
+						else
+						{
+							output.append(local_prefix + "match (" + channel_read_map[*action_it][match_counter - 1] + ") {\n");
+							local_prefix.append("\t");
+							output.append(local_prefix + "(Some(" + p + ")) => {\n");
+							local_prefix.append("\t");
+						}
+						pass_param += p;
+						if (match_counter < params.size() - 1)
+						{
+							pass_param += ", ";
+						}
+						++match_counter;
+						// we have reading channel
+					}
+				}
+				if (action_freeSpaceCondition_map[*action_it].empty())
+				{
+					output.append(local_prefix + "\tself." + *action_it + "(" + pass_param + ").await; \n");
+					output.append(local_prefix + "\t" + state_enum_assign + Scheduling::find_next_state(*it, *action_it, fsm) + ";\n");
+					if (!action_post_exec_code_map[*action_it].empty())
+					{
+						std::string t = action_post_exec_code_map[*action_it];
+						replace_all_substrings(t, "\t", local_prefix + "\t");
+						output.append(t);
+					}
+				}
+				else
+				{
+					output.append(local_prefix + "\t\tself." + *action_it + "(" + pass_param + ").await; \n");
+					output.append(local_prefix + "\t\t" + state_enum_assign + Scheduling::find_next_state(*it, *action_it, fsm) + ";\n");
+					if (!action_post_exec_code_map[*action_it].empty())
+					{
+						std::string t = action_post_exec_code_map[*action_it];
+						replace_all_substrings(t, "\t", local_prefix + "\t\t");
+						output.append(t);
+					}
+				}
+				if (channel_read_map[*action_it] != std::vector<std::string>())
+				{
+					while (match_counter > 0)
+					{
+						output.append(local_prefix + "} // close Some\n");
+						output.append(local_prefix + "_ => {\n");
+						if (round_robin)
+						{
+							output.append(local_prefix + "\treturn;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\tbreak;\n");
+						}
+						output.append(local_prefix + "}\n");
+						// output.append(prefix + "\t\t\t\t}\n");
+						output.append(prefix + "\t\t\t} // close match\n");
+						match_counter--;
+					}
+				}
+
+				if (!action_freeSpaceCondition_map[*action_it].empty())
+				{
+					size_t tmp_count = 0;
+					for (char c : action_freeSpaceCondition_map[*action_it])
+					{
+						if (c == '\n')
+						{
+							tmp_count++;
+						}
+					}
+
+					for (size_t i = 0; i < tmp_count + 1; i++)
+					{
+						output.append(local_prefix + "\t\t}\n");
+						// output.append(local_prefix + "\t\t}\n");
+						output.append(local_prefix + "\t\telse {\n");
+						if (!round_robin)
+						{
+							output.append(local_prefix + "\t\t\tbreak;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\t\t\treturn;\n");
+						}
+						output.append(local_prefix + "\t\t}\n");
+					}
+				}
+
+				cond_receiver_map_str.append(cond_receiver_map[*action_it]);
+				if (action_it == std::prev(schedulable_actions.end()))
+				{
+					if (cond_receiver_map[*action_it] != "")
+					{
+						output.append(local_prefix + "} else if " + cond_receiver_map_str + " {\n");
+						output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
+						output.append(local_prefix + "\tself.done_flag = true;\n");
+						if (round_robin)
+						{
+							output.append(local_prefix + "\treturn;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\tbreak;\n");
+						}
+
+					}
+					else if (cond_receiver_map_str != "")
+					{
+						output.append(local_prefix + "} else if " + cond_receiver_map_str + " {\n");
+						output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
+						output.append(local_prefix + "\tself.done_flag = true;\n");
+						if (round_robin)
+						{
+							output.append(local_prefix + "\treturn;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\tbreak;\n");
+						}
+					}
+					else
+					{
+						output.append("// cond_receiver_map is empty \n");
+					}
+
+				}
+
+			}
+
+			output.append(local_prefix + "} else { // before last else\n");
+			if (round_robin)
+			{
+				output.append(local_prefix + "\treturn;\n");
+			}
+			else
+			{
+				output.append(local_prefix + "\tbreak;\n");
+			}
+			output.append(local_prefix + "}\n");
+			if (static_rate)
+			{
+
+				output.append(prefix + "\t\t\t}\n");
+
+			}
+			output.append(prefix + "\t\t" + "} // close current state\n"); // close current state
+		}
+		output.append(prefix + "\t} // close state match\n"); // close state checking match
+	}
+	else
+	{
+		std::vector<std::string> schedulable_actions = find_schedulable_actions("", fsm, actions);
+		if (!priorities.empty())
+		{
+			std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{priorities});
+		}
+		local_prefix = prefix;
+		if (static_rate)
+		{
+
+
+			std::string channel_prefetch = state_channel_access[""];
+			replace_all_substrings(channel_prefetch, "\t", prefix + "\t\t");
+			output.append(prefix + "\tif (" + action_schedulingCondition_map[schedulable_actions.front()] + ") {// first action condition \n");
+			output.append(channel_prefetch);
+			local_prefix = prefix + "\t\t";
+
+
+		}
+		else
+		{
+			local_prefix = prefix + "\t";
+		}
+		for (auto action_it = schedulable_actions.begin(); action_it != schedulable_actions.end(); ++action_it)
+		{
+			if (*action_it == "initialize")
+			{
+				continue;
+			}
+			std::string action_condition = action_guard[*action_it];
+			if (!static_rate)
+			{
+				std::string tmp = action_schedulingCondition_map[*action_it];
+
+				bool cond_non_true = action_condition != "true" && action_condition != "(true)";
+				bool sched_non_true = tmp != "true" && tmp != "(true)";
+
+				if (cond_non_true && sched_non_true)
+				{
+					tmp.append(" && ");
+					tmp.append(action_condition);
+					action_condition = tmp;
+				}
+				else if (sched_non_true)
+				{
+					action_condition = tmp;
+				}
+			}
+
+			if (action_it == schedulable_actions.begin())
+			{
+				output.append(local_prefix + "if (" + action_condition + ") {\n");
+			}
+			else
+			{
+				output.append(local_prefix + "else if (" + action_condition + ") {\n");
+			}
+
+			if (!action_freeSpaceCondition_map[*action_it].empty())
+			{
+				output.append(local_prefix + "\t" + action_freeSpaceCondition_map[*action_it] + "\n");
+			}
+
+			std::string pass_param;
+			int match_counter = 0;
+			if (action_param_read.find(*action_it) != action_param_read.end())
+			{
+				const auto &params = action_param_read[*action_it];
+				// size_t i = 0;
+				for (const auto &p : params)
+				{
+					// we have reading channel
+					if (channel_read_map.find(*action_it) != channel_read_map.end() && channel_read_map[*action_it].size() >= match_counter + 1)
+					{
+						output.append(local_prefix + "match (" + channel_read_map[*action_it][match_counter] + ") {\n");
+						local_prefix.append("\t");
+						output.append(local_prefix + "(Some(" + p + ")) => {\n");
+						local_prefix.append("\t");
+					}
+					else
+					{
+						output.append(local_prefix + "match (" + channel_read_map[*action_it][match_counter - 1] + ") {\n");
+						local_prefix.append("\t");
+						output.append(local_prefix + "(Some(" + p + ")) => {\n");
+						local_prefix.append("\t");
+					}
+					pass_param += p;
+					if (match_counter < params.size() - 1)
+					{
+						pass_param += ", ";
+					}
+					++match_counter;
+				}
+			}
+
+			if (action_freeSpaceCondition_map[*action_it].empty())
+			{
+
+				output.append(local_prefix + "\tself." + *action_it + "(" + pass_param + ").await; \n");
+
+				if (!action_post_exec_code_map[*action_it].empty())
+				{
+					std::string t = action_post_exec_code_map[*action_it];
+					replace_all_substrings(t, "\t", local_prefix + "\t");
+					output.append(t);
+				}
+			}
+			else
+			{
+
+				output.append(local_prefix + "\tself." + *action_it + "(" + pass_param + ").await; \n");
+
+				if (!action_post_exec_code_map[*action_it].empty())
+				{
+					std::string t = action_post_exec_code_map[*action_it];
+					replace_all_substrings(t, "\t", local_prefix + "\t\t");
+					output.append(t);
+				}
+			}
+			if (channel_read_map[*action_it] != std::vector<std::string>())
+			{
+				while (match_counter > 0)
+				{
+					output.append(local_prefix + "} // close Some\n");
+					output.append(local_prefix + "_ => {\n");
+					if (round_robin)
+					{
+						output.append(local_prefix + "\treturn;\n");
+					}
+					else
+					{
+						output.append(local_prefix + "\tbreak;\n");
+					}
+					output.append(local_prefix + "}\n");
+					output.append(prefix + "\t\t\t} // close match\n");
+					match_counter--;
+				}
+				if (!action_freeSpaceCondition_map[*action_it].empty())
+				{
+					size_t tmp_count = 0;
+					for (char c : action_freeSpaceCondition_map[*action_it])
+					{
+						if (c == '\n')
+						{
+							tmp_count++;
+						}
+					}
+
+					for (size_t i = 0; i < tmp_count + 1; i++)
+					{
+						output.append(local_prefix + "\t\t}\n");
+						output.append(local_prefix + "\t\telse {\n");
+						if (!round_robin)
+						{
+							output.append(local_prefix + "\t\t\tbreak;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\t\t\treturn;\n");
+						}
+						output.append(local_prefix + "\t\t}\n");
+					}
+				}
+			}
+			else
+			{
+				if (!action_freeSpaceCondition_map[*action_it].empty())
+				{
+					size_t tmp_count = 0;
+					for (char c : action_freeSpaceCondition_map[*action_it])
+					{
+						if (c == '\n')
+						{
+							tmp_count++;
+						}
+					}
+
+					for (size_t i = 0; i < tmp_count + 1; i++)
+					{
+						output.append(local_prefix + "\t\t}\n");
+						output.append(local_prefix + "\t\telse {\n");
+						if (!round_robin)
+						{
+							output.append(local_prefix + "\t\t\tbreak;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\t\t\treturn;\n");
+						}
+						output.append(local_prefix + "\t\t}\n");
+					}
+				}
+				output.append(local_prefix + "} else { \n");
+				output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
+				output.append(local_prefix + "\tself.done_flag = true;\n");
+				if (round_robin)
+				{
+					output.append(local_prefix + "\treturn;\n");
+				}
+				else
+				{
+					output.append(local_prefix + "\tbreak;\n");
+				}
+			}
+
+			if (action_it == schedulable_actions.begin())
+			{
+				output.append(prefix + "\t\t\t} // close first if \n");
+			}
+			if (action_it == std::prev(schedulable_actions.end()))
+			{
+
+				if (cond_receiver_map[*action_it] != "")
+				{
+					output.append(local_prefix + "} else if " + cond_receiver_map[*action_it] + " {\n");
+					output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
+					output.append(local_prefix + "\tself.done_flag = true;\n");
+					if (round_robin)
+					{
+						output.append(local_prefix + "\treturn;\n");
+					}
+					else
+					{
+						output.append(local_prefix + "\tbreak;\n");
+					}
+
+				}
+				else
+				{
+					output.append(local_prefix + "else {\n");
+					output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
+					output.append(local_prefix + "\tself.done_flag = true;\n");
+				}
+			}
+		}
+		output.append(local_prefix + "} else { \n");
+
+		if (round_robin)
+		{
+			output.append(local_prefix + "\treturn;\n");
+		}
+		else
+		{
+			output.append(local_prefix + "\tbreak;\n");
+		}
+		output.append(local_prefix + "}\n");
+
+	}
+
+
+	if (!round_robin)
+	{
+		output.append(prefix + "\t} // close loop\n"); // close loop
+	}
+
+	output.append(prefix + "} // close scheduler\n"); // close scheduler method
+
+	return output;
+}
+
+static std::string default_local_2(
+	std::map<std::string, std::vector<Scheduling::Channel_Schedule_Data>> &actions,
+	std::vector<IR::FSM_Entry> &fsm,
+	std::vector<IR::Priority_Entry> &priorities,
+	Actor_Classification input_classification,
+	Actor_Classification output_classification,
+	std::string prefix,
+	// maps method names to their scheduling condition: guards and size and free space in the FIFOs
+	std::map<std::string, std::string> &action_guard,
+	std::map<std::string, std::string> &action_schedulingCondition_map,
+	std::map<std::string, std::vector<std::string>> param_read_decl_map,
+	std::map<std::string, std::string> &action_freeSpaceCondition_map,
+	std::map<std::string, std::string> &droping_channel_sender,
+	std::map<std::string, std::string> &cond_receiver_map,
+	std::map<std::string, std::set<std::string>> &action_param_read,
+	std::map<std::string, std::string> &state_channel_access,
+	std::map<std::string, std::string> &action_post_exec_code_map,
+	std::string loop_exp,
+	bool round_robin,
+	std::string schedule_function_name,
+	std::string schedule_function_parameter)
+{
+	Config *c = c->getInstance();
+	std::string output{};
+	std::string local_prefix;
+	std::string buffered_prefix = prefix;
+	bool static_rate = (input_classification != Actor_Classification::dynamic_rate);
+
+	output.append(prefix + "fn schedule(&mut self) {\n");
+
+	if (!round_robin)
+	{
+		output.append(prefix + "\tloop {\n");
+	}
+	if (!fsm.empty())
+	{
+		std::string state_enum_compare;
+		std::string state_enum_assign;
+
+		state_enum_compare = "FSM::";
+		state_enum_assign = "self.current_state = FSM::";
+		std::set<std::string> states = Scheduling::get_all_states(fsm);
+
+		output.append(prefix + "\tmatch self.current_state {\n");
+
 		for (auto it = states.begin(); it != states.end(); ++it)
 		{
 			output.append(prefix + "\t\t" + state_enum_compare + *it + " => {\n");
 
 			// find actions that could be scheduled in this state
 			std::vector<std::string> schedulable_actions = find_schedulable_actions(*it, fsm, actions);
-
 			// sort the list of schedulable actions with the comparsion function defined above if a priority block is defined
 			if (!priorities.empty())
 			{
-				std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{ priorities });
+				std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{priorities});
 			}
 			if (static_rate)
 			{
@@ -96,111 +637,141 @@ static std::string default_local(
 			}
 			else
 			{
-				local_prefix = prefix + "\t\t\t";
+				local_prefix = prefix + "\t\t\t\t";
 			}
-			std::vector<std::string> schedulable_actions_tmp = find_schedulable_actions("", fsm, actions);
-
-			// temporary solution for now . later we use only one for loop for schedule_actions
-			std::string tmp_match_val;
-			for (auto action_it = schedulable_actions.begin();
-				action_it != schedulable_actions.end(); ++action_it)
-			{
-				tmp_match_val.append(transform_string(get_action_in_parameters(*action_it, actions)));
-			}
-			// we have reading channel
-			if (tmp_match_val != "")
-			{
-				output.append(local_prefix + "match (" + action_schedulingCondition_map[schedulable_actions_tmp.front()] + ") {\n");
-				local_prefix.append("\t");
-				output.append(local_prefix + "(" + tmp_match_val + ") => {\n");
-				local_prefix.append("\t");
-			}
-
 			// create condition test and scheduling for each schedulable action
 			for (auto action_it = schedulable_actions.begin();
-				action_it != schedulable_actions.end(); ++action_it)
+				 action_it != schedulable_actions.end(); ++action_it)
 			{
 				std::string action_condition = action_guard[*action_it];
-
 				if (!static_rate)
 				{
-					action_condition = "true";
-				}
+					std::string tmp = action_schedulingCondition_map[*action_it];
 
+					bool cond_non_true = action_condition != "true" && action_condition != "(true)";
+					bool sched_non_true = tmp != "true" && tmp != "(true)";
+
+					if (cond_non_true && sched_non_true)
+					{
+						tmp.append(" && ");
+						tmp.append(action_condition);
+						action_condition = tmp;
+					}
+					else if (sched_non_true)
+					{
+						action_condition = tmp;
+					}
+				}
 				if (action_it == schedulable_actions.begin())
 				{
 					output.append(local_prefix + "if (" + action_condition + ") {\n");
-				}
-				else if (action_it == std::prev(schedulable_actions.end()))
-				{
-					output.append(local_prefix + "else {\n");
 				}
 				else
 				{
 					output.append(local_prefix + "else if (" + action_condition + ") {\n");
 				}
-				// we dont need to check if the channel is free as we drop it when needed
-
-				output.append(local_prefix + "\tself." + *action_it + "(" + get_action_in_parameters(*action_it, actions) + ").await; \n");
-				output.append(local_prefix + "\t" + state_enum_assign + Scheduling::find_next_state(*it, *action_it, fsm) + ";\n");
-				if (!action_post_exec_code_map[*action_it].empty())
+				if (action_freeSpaceCondition_map[*action_it].empty())
 				{
-					std::string t = action_post_exec_code_map[*action_it];
-					replace_all_substrings(t, "\t", local_prefix + "\t");
-					output.append(t);
-				}
+					output.append(local_prefix + "\tself." + *action_it + "(" +
+								  get_action_in_parameters(*action_it, actions) + "); \n");
 
-				output.append(local_prefix + "}\n");
-			}
-
-			if (tmp_match_val != "")
-			{
-				output.append(prefix + "\t\t\t\t}\n");
-				output.append(prefix + "\t\t\t\t_ => {\n");
-				output.append(local_prefix + "println!(\"{} finished running!\", self.actor_name);\n");
-				output.append(local_prefix + "self.done = true;\n");
-				// this drops the channel sender
-				for (auto it = action_freeSpaceCondition_map.begin(); it != action_freeSpaceCondition_map.end(); ++it)
-				{
-					// output.append(local_prefix + "first: " + it->first + " second : " + it->second + "\n");
-					if (it->second != "")
+					output.append(local_prefix + "\t" + state_enum_assign + Scheduling::find_next_state(*it, *action_it, fsm) + ";\n");
+					if (!action_post_exec_code_map[*action_it].empty())
 					{
-						output.append(local_prefix + it->second + "\n");
+						std::string t = action_post_exec_code_map[*action_it];
+						replace_all_substrings(t, "\t", local_prefix + "\t");
+						output.append(t);
 					}
-				}
 
-				// output.append(local_prefix + action_freeSpaceCondition_map[*it] + "\n");
-				output.append(prefix + "\t\t\t\t}\n");
+
+				}
+				else
+				{
+					output.append(local_prefix + "\tif (" + action_freeSpaceCondition_map[*action_it] + ") {\n");
+					output.append(local_prefix + "\t\tself." + *action_it + "(" +
+								  get_action_in_parameters(*action_it, actions) + "); \n");
+
+					output.append(local_prefix + "\t\t" + state_enum_assign + Scheduling::find_next_state(*it, *action_it, fsm) + ";\n");
+					if (!action_post_exec_code_map[*action_it].empty())
+					{
+						std::string t = action_post_exec_code_map[*action_it];
+						replace_all_substrings(t, "\t", local_prefix + "\t\t");
+						output.append(t);
+					}
+					output.append(local_prefix + "\t}\n");
+					if (cond_receiver_map[*action_it] != "")
+					{
+						output.append(local_prefix + "\telse if " + cond_receiver_map[*action_it] + " {\n");
+						output.append(local_prefix + "\t\t" + droping_channel_sender[*action_it] + "\n");
+						output.append(local_prefix + "\t\tself.done_flag = true;\n");
+						if (!round_robin)
+						{
+							output.append(local_prefix + "\t\tbreak;\n");
+						}
+						else
+						{
+							output.append(local_prefix + "\t\treturn;\n");
+						}
+						output.append(local_prefix + "\t}\n");
+					}
+
+					output.append(local_prefix + "\telse {\n");
+					if (!round_robin)
+					{
+						output.append(local_prefix + "\t\tbreak;\n");
+					}
+					else
+					{
+						output.append(local_prefix + "\t\treturn;\n");
+					}
+
+					output.append(local_prefix + "\t}\n");
+				}
+				output.append(local_prefix + "}\n");
+
+			}
+			output.append(local_prefix + "else {\n");
+			if (round_robin)
+			{
+				output.append(local_prefix + "\treturn;\n");
+			}
+			else
+			{
+				output.append(local_prefix + "\tbreak;\n");
+			}
+			output.append(local_prefix + "}\n");
+			if (static_rate)
+			{
+				output.append(prefix + "\t\t\t} else { \n");
+				if (!round_robin)
+				{
+					output.append(prefix + "\t\t\t\tbreak;\n");
+				}
+				else
+				{
+					output.append(prefix + "\t\t\t\treturn;\n");
+				}
 				output.append(prefix + "\t\t\t}\n");
 			}
-			output.append(prefix + "\t\t" + "}\n"); // close current state
+			output.append(prefix + "\t\t} // close state \n"); // close state
 		}
-		output.append(prefix + "\t}\n"); // close state checking match
+		output.append(prefix + "\t} // close match\n"); // close match
 	}
 	else
 	{
 		std::vector<std::string> schedulable_actions = find_schedulable_actions("", fsm, actions);
 		if (!priorities.empty())
 		{
-			std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{ priorities });
+			std::sort(schedulable_actions.begin(), schedulable_actions.end(), Scheduling::comparison_object{priorities});
 		}
-		local_prefix = prefix;
 		if (static_rate)
 		{
 			// We only need to check size once
-			if (action_schedulingCondition_map[schedulable_actions.front()] != "true")
-			{
-				output.append(prefix + "\tmatch (" + action_schedulingCondition_map[schedulable_actions.front()] + ") {\n");
-				local_prefix.append("\t\t");
-			}
-			else
-			{
-				local_prefix.append("\t");
-			}
-			// ? not needed
-			// std::string channel_prefetch = state_channel_access[""];
-			// replace_all_substrings(channel_prefetch, "\t", prefix + "\t\t");
-			// output.append(channel_prefetch);
+			output.append(prefix + "\tif (" + action_schedulingCondition_map[schedulable_actions.front()] + ") {\n");
+			std::string channel_prefetch = state_channel_access[""];
+			replace_all_substrings(channel_prefetch, "\t", prefix + "\t\t");
+			output.append(channel_prefetch);
+			local_prefix = prefix + "\t\t";
 		}
 		else
 		{
@@ -215,71 +786,170 @@ static std::string default_local(
 			std::string action_condition = action_guard[*it];
 			if (!static_rate)
 			{
-				action_condition = "true";
+				std::string tmp = action_schedulingCondition_map[*it];
+
+				bool cond_non_true = (action_condition != "true") && (action_condition != "(true)");
+				bool sched_non_true = (tmp != "true") && (tmp != "(true)");
+
+				if (cond_non_true && sched_non_true)
+				{
+					tmp.append(" && ");
+					tmp.append(action_condition);
+					action_condition = tmp;
+				}
+				else if (sched_non_true)
+				{
+					action_condition = tmp;
+				}
 			}
 			if (it == schedulable_actions.begin())
 			{
-				// instead of having a map of parameters we just reuse the get_action_in_parameters output we transform the string from Input1_param, Input2_param to Some(Input1_param), Some(Input2_param)
-
-				if (action_schedulingCondition_map[schedulable_actions.front()] != "true")
-				{
-					output.append(local_prefix + "(" + transform_string(get_action_in_parameters(*it, actions)) + ") => {\n");
-					local_prefix.append("\t");
-					output.append(local_prefix + "if (" + action_condition + ") {\n");
-				}
-				else
-				{
-					output.append(local_prefix + "if (" + action_condition + ") {\n");
-				}
+				output.append(local_prefix + "if (" + action_condition + ") {\n");
 			}
 			else
 			{
 				output.append(local_prefix + "else if (" + action_condition + ") {\n");
 			}
-			// Last actor; not channel sender
-			output.append(local_prefix + "\tself." + *it + "(" + get_action_in_parameters(*it, actions) + ").await; \n");
-			if (!action_post_exec_code_map[*it].empty())
-			{
-				std::string t = action_post_exec_code_map[*it];
-				replace_all_substrings(t, "\t", local_prefix + "\t");
-				output.append(t);
-			}
 
-			if (action_schedulingCondition_map[schedulable_actions.front()] != "true")
+			if (action_freeSpaceCondition_map[*it].empty())
 			{
-				output.append(local_prefix + "}\n");
-				output.append(prefix + "\t\t}\n");
-				output.append(prefix + "\t\t_ => {\n");
-				output.append(local_prefix + "println!(\"{} finished running!\", self.actor_name);\n");
-				output.append(local_prefix + "self.done = true;\n");
-				// this drops the channel sender
-				// TODO: local_prefix shoudl be asigned to each droped sender and not only once
-				output.append(local_prefix + action_freeSpaceCondition_map[*it] + "\n");
-				// for (auto ch_it = action_freeSpaceCondition_map.begin(); ch_it != action_freeSpaceCondition_map.end(); ++ch_it)
-				// {
+				for (const auto &val : param_read_decl_map[*it])
+				{
+					output.append(local_prefix + "\t" + val);
+				}
+				output.append(local_prefix + "\tself." + *it + "(" + get_action_in_parameters(*it, actions) + "); \n");
 
-				// 	std::cout << "Key: " << ch_it->first << ", Value: " << ch_it->second << std::endl;
-				// }
-				output.append(prefix + "\t\t}\n");
-				output.append(prefix + "\t}\n");
+				if (!action_post_exec_code_map[*it].empty())
+				{
+					std::string t = action_post_exec_code_map[*it];
+					replace_all_substrings(t, "\t", local_prefix + "\t");
+					output.append(t);
+				}
 			}
 			else
 			{
+				output.append(local_prefix + "\tif (" + action_freeSpaceCondition_map[*it] + ") {\n");
 
-				output.append(local_prefix + "} else {\n");
-				output.append(local_prefix + "\tprintln!(\"{} finished running!\", self.actor_name);\n");
-				output.append(local_prefix + "\tself.done = true;\n");
-				output.append(local_prefix + "\t" + action_freeSpaceCondition_map[*it] + "\n");
-				output.append(prefix + "\t}\n");
+				for (const auto &val : param_read_decl_map[*it])
+				{
+					output.append(local_prefix + "\t\t" + val);
+				}
+
+				output.append(local_prefix + "\t\tself." + *it + "(" + get_action_in_parameters(*it, actions) + "); \n");
+
+				if (!action_post_exec_code_map[*it].empty())
+				{
+					std::string t = action_post_exec_code_map[*it];
+					replace_all_substrings(t, "\t", local_prefix + "\t\t");
+					output.append(t);
+				}
+				output.append(local_prefix + "\t}\n");
+				output.append(local_prefix + "\telse {\n");
+				if (!round_robin)
+				{
+					output.append(local_prefix + "\t\tbreak;\n");
+				}
+				else
+				{
+					output.append(local_prefix + "\t\treturn;\n");
+				}
+
+				output.append(local_prefix + "\t}\n");
+			}
+
+			output.append(local_prefix + "}\n");
+
+			if (action_schedulingCondition_map[schedulable_actions.front()] == "true")
+			{
+				if (cond_receiver_map[*it] == "")
+				{
+					output.append(local_prefix + "else {\n");
+				}
+				else
+				{
+					output.append(local_prefix + "else if " + cond_receiver_map[*it] + "{\n");
+				}
+
+				output.append(local_prefix + "\t" + droping_channel_sender[*it] + "\n");
+				output.append(local_prefix + "\tself.done_flag = true;\n");
+				if (!round_robin)
+				{
+					output.append(local_prefix + "\tbreak;\n");
+				}
+				else
+				{
+					output.append(local_prefix + "\treturn;\n");
+				}
+				output.append(local_prefix + "}\n");
+				if (cond_receiver_map[*it] != "")
+				{
+					output.append(prefix + "\telse {\n");
+					if (!round_robin)
+					{
+						output.append(prefix + "\t\tbreak;\n");
+					}
+					else
+					{
+						output.append(prefix + "\t\treturn;\n");
+					}
+
+					output.append(prefix + "\t}\n");
+				}
+			}
+			if (static_rate)
+			{
+				if (action_schedulingCondition_map[schedulable_actions.front()] != "true")
+				{
+					output.append(prefix + "\t}\n");
+					if (cond_receiver_map[*it] == "")
+					{
+						output.append(prefix + "\telse {\n");
+					}
+					else
+					{
+						output.append(prefix + "\telse if " + cond_receiver_map[*it] + " {\n");
+					}
+
+					output.append(prefix + "\t\t" + droping_channel_sender[*it] + "\n");
+					output.append(prefix + "\t\tself.done_flag = true;\n");
+					if (!round_robin)
+					{
+						output.append(local_prefix + "\t\tbreak;\n");
+					}
+					else
+					{
+						output.append(local_prefix + "\t\treturn;\n");
+					}
+
+					output.append(prefix + "\t}\n");
+					if (cond_receiver_map[*it] != "")
+					{
+						output.append(prefix + "\telse {\n");
+						if (!round_robin)
+						{
+							output.append(prefix + "\t\tbreak;\n");
+						}
+						else
+						{
+							output.append(prefix + "\t\treturn;\n");
+						}
+
+						output.append(prefix + "\t}\n");
+					}
+				}
+				else
+				{
+					output.append(prefix + "\t}\n");
+				}
 			}
 		}
 
-		// if (static_rate)
-		// {
 
-		// }
 	}
-
+	if (!round_robin)
+	{
+		output.append(prefix + "\t}\n"); // close main loop
+	}
 	output.append(prefix + "}\n"); // close scheduler method
 
 	return output;
@@ -290,7 +960,7 @@ static std::string default_local(
  */
 static std::string guard_var_replacement(
 	std::string guard,
-	std::map<std::string, std::string>& replacement_map)
+	std::map<std::string, std::string> &replacement_map)
 {
 	remove_whitespaces(guard);
 
@@ -311,15 +981,15 @@ static std::string guard_var_replacement(
  * map, mapping the state to the fetch code. If no FSM is defined the code has the empty string as key.
  */
 static std::map<std::string, std::string> get_scheduler_channel_access(
-	std::map<std::string, std::vector<Scheduling::Channel_Schedule_Data>>& actions,
-	std::map<std::string, std::string>& action_guard,
+	std::map<std::string, std::vector<Scheduling::Channel_Schedule_Data>> &actions,
+	std::map<std::string, std::string> &action_guard,
 	Actor_Classification input_classification,
-	std::map<std::string, std::vector<std::string>>& actions_per_state,
-	Actor_Conversion_Data& conversion_data)
+	std::map<std::string, std::vector<std::string>> &actions_per_state,
+	Actor_Conversion_Data &conversion_data)
 {
 	// Map the channel read to local variable for each state if required (not in the dynamic case)
 	std::map<std::string, std::string> output;
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 
 	/* Only use this path for now, the other path has a bug, as it should fetch the
 	 * the tokens only if sufficient output channel space is available.
@@ -330,19 +1000,19 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 	{
 		// It is dynamic, hence, we must prefetch
 		for (auto action_it = actions.begin();
-			action_it != actions.end(); ++action_it)
+			 action_it != actions.end(); ++action_it)
 		{
 			std::map<std::string, std::string> replacement_map;
 
 			for (auto sched_data_it = action_it->second.begin();
-				sched_data_it != action_it->second.end(); ++sched_data_it)
+				 sched_data_it != action_it->second.end(); ++sched_data_it)
 			{
 				// One scheduling data entry per accessed channel
 				unsigned index = 0;
 				if (action_guard.contains(action_it->first) && (action_guard[action_it->first] != ""))
 				{
 					for (auto var_it = sched_data_it->var_names.begin();
-						var_it != sched_data_it->var_names.end(); ++var_it)
+						 var_it != sched_data_it->var_names.end(); ++var_it)
 					{
 						if (sched_data_it->unused_channel)
 						{
@@ -370,7 +1040,7 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 								std::string tmp;
 								std::string offset = std::to_string(i * sched_data_it->var_names.size() + index);
 								ABI_CHANNEL_PREFETCH(c, tmp, sched_data_it->channel_name, offset)
-									std::string n = tmp;
+								std::string n = tmp;
 								replacement_map[r] = n;
 							}
 						}
@@ -380,7 +1050,7 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 							std::string tmp;
 							std::string offset = std::to_string(index);
 							ABI_CHANNEL_PREFETCH(c, tmp, sched_data_it->channel_name, offset)
-								std::string n = tmp;
+							std::string n = tmp;
 							replacement_map[r] = n;
 						}
 						++index;
@@ -412,14 +1082,14 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 					std::map<std::string, std::string> replacement_map;
 
 					for (auto sched_data_it = actions[*action_it].begin();
-						sched_data_it != actions[*action_it].end(); ++sched_data_it)
+						 sched_data_it != actions[*action_it].end(); ++sched_data_it)
 					{
 						// One scheduling data entry per accessed channel
 						unsigned index = 0;
 						if (action_guard.contains(*action_it) && (action_guard[*action_it] != ""))
 						{
 							for (auto var_it = sched_data_it->var_names.begin();
-								var_it != sched_data_it->var_names.end(); ++var_it)
+								 var_it != sched_data_it->var_names.end(); ++var_it)
 							{
 								if (sched_data_it->unused_channel)
 								{
@@ -482,10 +1152,10 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 				{
 					std::string tmp;
 					ABI_CHANNEL_READ(c, tmp, it->channel_name)
-						if (it->unused_channel || !it->in)
-						{
-							continue;
-						}
+					if (it->unused_channel || !it->in)
+					{
+						continue;
+					}
 					if (it->elements == 1)
 					{
 						local_def.append("\t" + it->type + " " + it->channel_name + "_param = " + tmp + ";\n");
@@ -506,19 +1176,19 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 		{
 			// No FSM, hence, it is the static case
 			for (auto action_it = actions.begin();
-				action_it != actions.end(); ++action_it)
+				 action_it != actions.end(); ++action_it)
 			{
 				std::map<std::string, std::string> replacement_map;
 
 				for (auto sched_data_it = action_it->second.begin();
-					sched_data_it != action_it->second.end(); ++sched_data_it)
+					 sched_data_it != action_it->second.end(); ++sched_data_it)
 				{
 					// One scheduling data entry per accessed channel
 					unsigned index = 0;
 					if (action_guard.contains(action_it->first) && (action_guard[action_it->first] != ""))
 					{
 						for (auto var_it = sched_data_it->var_names.begin();
-							var_it != sched_data_it->var_names.end(); ++var_it)
+							 var_it != sched_data_it->var_names.end(); ++var_it)
 						{
 							if (sched_data_it->unused_channel)
 							{
@@ -586,13 +1256,13 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 				{
 					std::string tmp;
 					ABI_CHANNEL_READ(c, tmp, it->channel_name)
-						local_def.append("\t" + it->type + " " + it->channel_name + "_param = " + tmp + ";\n");
+					local_def.append("\t" + it->type + " " + it->channel_name + "_param = " + tmp + ";\n");
 				}
 				else
 				{
 					std::string tmp;
 					ABI_CHANNEL_READ(c, tmp, it->channel_name)
-						local_def.append("\t" + it->type + " " + it->channel_name + "_param[" + std::to_string(it->elements) + "];\n");
+					local_def.append("\t" + it->type + " " + it->channel_name + "_param[" + std::to_string(it->elements) + "];\n");
 					local_def.append("\tfor (unsigned i = 0; i < " + std::to_string(it->elements) + "; ++i) {" + it->channel_name + "_param[i] = " + tmp + ";}\n");
 				}
 			}
@@ -607,19 +1277,20 @@ static std::map<std::string, std::string> get_scheduler_channel_access(
 }
 
 std::string Scheduling::generate_local_scheduler_rust(
-	Actor_Conversion_Data& conversion_data,
-	std::map<std::string, std::string>& action_guard,
-	std::vector<IR::FSM_Entry>& fsm,
-	std::vector<IR::Priority_Entry>& priorities,
+	Actor_Conversion_Data &conversion_data,
+	std::map<std::string, std::string> &action_guard,
+	std::vector<IR::FSM_Entry> &fsm,
+	std::vector<IR::Priority_Entry> &priorities,
 	Actor_Classification input_classification,
 	Actor_Classification output_classification,
 	std::string prefix,
 	std::string schedule_function_name,
 	std::string schedule_function_parameter,
 	unsigned scheduling_loop_bound,
-	std::set<std::string>& actor_var_map)
+	std::set<std::string> &actor_var_map,
+	std::map<std::string, std::set<std::string>> &action_param_read)
 {
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 	std::map<std::string, std::vector<Channel_Schedule_Data>> actions = conversion_data.get_scheduling_data();
 
 #ifdef DEBUG_SCHEDULER_GENERATION
@@ -630,7 +1301,7 @@ std::string Scheduling::generate_local_scheduler_rust(
 		for (auto d = it->second.begin(); d != it->second.end(); ++d)
 		{
 			std::cout << "Channel name: " << d->channel_name << " Type: " << d->type
-				<< " Num: " << d->elements << " Variables:";
+					  << " Num: " << d->elements << " Variables:";
 			for (auto var_it = d->var_names.begin(); var_it != d->var_names.end(); ++var_it)
 			{
 				std::cout << " " << *var_it;
@@ -648,7 +1319,12 @@ std::string Scheduling::generate_local_scheduler_rust(
 #endif
 
 	std::map<std::string, std::string> action_schedulingCondition_map;
-	std::map<std::string, std::string> action_freeSpaceCondition_map; // intead of free space condition we use it for droping channel sender
+	std::map<std::string, std::vector<std::string>> channel_read_map;
+	std::map<std::string, std::vector<std::string>> param_read_decl_map;
+	// std::map<std::string, std::string> param_read_decl_map;
+	std::map<std::string, std::string> action_freeSpaceCondition_map;
+	std::map<std::string, std::string> cond_receiver_map;
+	std::map<std::string, std::string> droping_channel_sender;
 	std::map<std::string, std::string> action_post_exec_map;
 
 	std::map<std::string, std::vector<std::string>> actions_per_state;
@@ -677,65 +1353,16 @@ std::string Scheduling::generate_local_scheduler_rust(
 		}
 	}
 
-	// if (c->get_optimize_scheduling())
-	// {
-	// 	std::set<std::string> in_channels;
-	// 	std::set<std::string> out_channels;
-	// 	for (auto action_it = actions.begin(); action_it != actions.end(); ++action_it)
-	// 	{
-	// 		for (auto sched_data_it = action_it->second.begin();
-	// 			 sched_data_it != action_it->second.end();
-	// 			 ++sched_data_it)
-	// 		{
-	// 			if (sched_data_it->unused_channel)
-	// 			{
-	// 				continue;
-	// 			}
-	// 			if (sched_data_it->in)
-	// 			{
-	// 				if (in_channels.find(sched_data_it->channel_name) == in_channels.end())
-	// 				{
-	// 					in_channels.insert(sched_data_it->channel_name);
-	// 				}
-	// 			}
-	// 			else
-	// 			{
-	// 				if (out_channels.find(sched_data_it->channel_name) == out_channels.end())
-	// 				{
-	// 					out_channels.insert(sched_data_it->channel_name);
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// 	for (auto it = in_channels.begin(); it != in_channels.end(); ++it)
-	// 	{
-	// 		std::string tmp;
-	// 		ABI_CHANNEL_SIZE(c, tmp, *it)
-	// 		sched_loop.append(prefix + "\tunsigned " + *it + "_size = " + tmp + ";\n");
-	// 	}
-	// 	for (auto it = out_channels.begin(); it != out_channels.end(); ++it)
-	// 	{
-	// 		std::string tmp;
-	// 		ABI_CHANNEL_FREE(c, tmp, *it)
-	// 		sched_loop.append(prefix + "\tunsigned " + *it + "_free = " + tmp + ";\n");
-	// 	}
-	// 	sched_loop.append("\n");
-	// }
-
-	// if (scheduling_loop_bound != 0)
-	// {
-	// 	sched_loop.append(prefix + "\tfor (unsigned sched_loops = 0; sched_loops < " + std::to_string(scheduling_loop_bound) + "; ++sched_loops) {\n");
-	// }
-	// else
-	// {
-	// 	sched_loop.append(prefix + "\tfor (;;) {\n");
-	// }
-
+	
 	// init with empty first so we don't need to care later and keep the guarantee that every action is in there
 	for (auto it = actions.begin(); it != actions.end(); ++it)
 	{
 		action_schedulingCondition_map[it->first] = "";
+		channel_read_map[it->first] = {};
+		param_read_decl_map[it->first] = {};
 		action_freeSpaceCondition_map[it->first] = "";
+		droping_channel_sender[it->first] = "";
+		cond_receiver_map[it->first] = "";
 		action_post_exec_map[it->first] = "";
 	}
 
@@ -745,9 +1372,23 @@ std::string Scheduling::generate_local_scheduler_rust(
 	 */
 	for (auto action_it = actions.begin(); action_it != actions.end(); ++action_it)
 	{
+		std::string param_str = get_action_in_parameters(action_it->first, actions);
+
+		std::vector<std::string> param_map;
+		std::stringstream ss(param_str);
+		std::string param_item;
+
+		while (std::getline(ss, param_item, ','))
+		{
+			// Trim leading/trailing spaces
+			param_item.erase(0, param_item.find_first_not_of(" \t"));
+			param_item.erase(param_item.find_last_not_of(" \t") + 1);
+			param_map.push_back(param_item);
+		}
+
 		for (auto sched_data_it = action_it->second.begin();
-			sched_data_it != action_it->second.end();
-			++sched_data_it)
+			 sched_data_it != action_it->second.end();
+			 ++sched_data_it)
 		{
 			if (sched_data_it->unused_channel)
 			{
@@ -757,21 +1398,33 @@ std::string Scheduling::generate_local_scheduler_rust(
 			{
 				if (!action_schedulingCondition_map[action_it->first].empty())
 				{
-					action_schedulingCondition_map[action_it->first].append(", ");
+					action_schedulingCondition_map[action_it->first].append(" && ");
 				}
-				// if (c->get_optimize_scheduling())
-				// {
-				// 	action_schedulingCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_size >= " + std::to_string(sched_data_it->elements) + ")");
-				// 	action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_size -= " + std::to_string(sched_data_it->elements) + ";\n");
-				// }
-				// else
-				// {
+
+				if (!cond_receiver_map[action_it->first].empty())
+				{
+					cond_receiver_map[action_it->first].append(" && ");
+				}
+
 				std::string tmp;
-				// ABI_CHANNEL_SIZE(c, tmp, sched_data_it->channel_name)
-				// action_schedulingCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
-				ABI_CHANNEL_READ(c, tmp, sched_data_it->channel_name)
-					action_schedulingCondition_map[action_it->first].append(tmp);
-				// std::cout << tmp << std::endl;
+				ABI_CHANNEL_SIZE(c, tmp, sched_data_it->channel_name)
+
+				action_schedulingCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
+
+				std::string tmp2;
+				ABI_CHANNEL_READ(c, tmp2, sched_data_it->channel_name)
+				channel_read_map[action_it->first].push_back(tmp2);
+
+				std::string ch_tmp = (sched_data_it->channel_name == "in") ? "input" : sched_data_it->channel_name;
+				cond_receiver_map[action_it->first].append("self." + ch_tmp + ".is_terminated() && self." + ch_tmp + ".is_empty()");
+
+
+				// doesnt match well when we have 2 or more channel reads
+				for (const auto &s : param_map)
+				{
+					param_read_decl_map[action_it->first].push_back("let " + s + " = " + tmp2 + ";\n");
+				}
+
 				// }
 			}
 			else
@@ -779,19 +1432,33 @@ std::string Scheduling::generate_local_scheduler_rust(
 				if (!action_freeSpaceCondition_map[action_it->first].empty())
 				{
 					// normaly we should just have one channel sender but incase
-					action_freeSpaceCondition_map[action_it->first].append("\n");
+					if (c->get_target_language() == Target_Language::rust1)
+					{
+						action_freeSpaceCondition_map[action_it->first].append("\n");
+					}
+					else
+					{
+						action_freeSpaceCondition_map[action_it->first].append(" && ");
+					}
+
+					droping_channel_sender[action_it->first].append("\n");
 				}
-				// if (c->get_optimize_scheduling())
-				// {
-				// 	action_freeSpaceCondition_map[action_it->first].append("(" + sched_data_it->channel_name + "_free >= " + std::to_string(sched_data_it->elements) + ")");
-				// 	action_post_exec_map[action_it->first].append("\t" + sched_data_it->channel_name + "_free -= " + std::to_string(sched_data_it->elements) + ";\n");
-				// }
-				// else
-				// {
-				// std::string tmp;
-				// ABI_CHANNEL_FREE(c, tmp, sched_data_it->channel_name)
-				// action_freeSpaceCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
-				action_freeSpaceCondition_map[action_it->first].append("self." + sched_data_it->channel_name + " = None;");
+
+				std::string tmp;
+				ABI_CHANNEL_FREE(c, tmp, sched_data_it->channel_name)
+
+				// action_freeSpaceCondition_map[action_it->first].append("self." + sched_data_it->channel_name + " = None;");
+				if (c->get_target_language() == Target_Language::rust1)
+				{
+					action_freeSpaceCondition_map[action_it->first].append(tmp + " >= " + std::to_string(sched_data_it->elements) + " {");
+					droping_channel_sender[action_it->first].append("self." + sched_data_it->channel_name + " = None;");
+				}
+				else
+				{
+					action_freeSpaceCondition_map[action_it->first].append("(" + tmp + " >= " + std::to_string(sched_data_it->elements) + ")");
+					droping_channel_sender[action_it->first].append("self." + sched_data_it->channel_name + ".terminate();");
+				}
+
 				// }
 			}
 		}
@@ -799,25 +1466,50 @@ std::string Scheduling::generate_local_scheduler_rust(
 		{
 			action_schedulingCondition_map[action_it->first] = "true";
 		}
+
 	}
 
 	if (c->get_sched_non_preemptive() || c->get_sched_rr())
 	{
-		return default_local(actions, fsm, priorities,
-			input_classification, output_classification, prefix,
-			action_guard,
-			action_schedulingCondition_map,
-			action_freeSpaceCondition_map,
-			state_channel_access,
-			action_post_exec_map,
-			sched_loop,
-			c->get_sched_rr(),
-			schedule_function_name,
-			schedule_function_parameter);
+		if (c->get_target_language() == Target_Language::rust1)
+		{
+			return default_local(actions, fsm, priorities,
+								 input_classification, output_classification, prefix,
+								 action_guard,
+								 action_schedulingCondition_map,
+								 channel_read_map,
+								 action_freeSpaceCondition_map,
+								 droping_channel_sender,
+								 cond_receiver_map,
+								 action_param_read,
+								 state_channel_access,
+								 action_post_exec_map,
+								 sched_loop,
+								 c->get_sched_rr(),
+								 schedule_function_name,
+								 schedule_function_parameter);
+		}
+		else
+		{
+			return default_local_2(actions, fsm, priorities,
+								   input_classification, output_classification, prefix,
+								   action_guard,
+								   action_schedulingCondition_map,
+								   param_read_decl_map,
+								   action_freeSpaceCondition_map,
+								   droping_channel_sender,
+								   cond_receiver_map,
+								   action_param_read,
+								   state_channel_access,
+								   action_post_exec_map,
+								   sched_loop,
+								   c->get_sched_rr(),
+								   schedule_function_name,
+								   schedule_function_parameter);
+		}
 	}
 	else
 	{
-		throw Scheduler_Generation_Exception{ "No Scheduling Strategy defined." };
+		throw Scheduler_Generation_Exception{"No Scheduling Strategy defined."};
 	}
 }
-

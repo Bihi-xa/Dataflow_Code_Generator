@@ -4,13 +4,13 @@
 #include <string>
 #include "IR/Dataflow_Network.hpp"
 
-namespace ABI_stdrust
+namespace ABI_stdrust2
 {
 	using Header = std::string;
 	using Source = std::string;
 	using Impl_Type = std::string;
 
-	void init_ABI_support(IR::Dataflow_Network* dpn);
+	void init_ABI_support(IR::Dataflow_Network *dpn);
 
 	std::pair<Header, Source> generate_channel_code(bool cntrl_chan);
 
@@ -31,7 +31,7 @@ namespace ABI_stdrust
 	std::string thread_creation(
 		std::string function,
 		std::string prefix,
-		std::string& identifier_out);
+		std::string &identifier_out);
 	std::string thread_start(
 		std::string identifier,
 		std::string prefix);

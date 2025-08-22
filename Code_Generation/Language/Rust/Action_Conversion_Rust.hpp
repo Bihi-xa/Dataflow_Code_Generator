@@ -9,9 +9,9 @@
 #include <set>
 
 std::string convert_action_rust(
-	IR::Action* action,
-	Action_Buffer* token_producer,
-	Actor_Conversion_Data& actor_data,
+	IR::Action *action,
+	Action_Buffer *token_producer,
+	Actor_Conversion_Data &actor_data,
 	/* Set to true if the input channels shall not be read directly,
 	   instead parameters are added to the generated function.
 	 */
@@ -23,4 +23,5 @@ std::string convert_action_rust(
 	std::set<std::string> unused_in_channels,
 	std::set<std::string> unused_out_channels,
 	std::set<std::string> actor_var_map,
+	std::map<std::string, std::set<std::string>> &action_param_read,
 	std::string prefix = "");

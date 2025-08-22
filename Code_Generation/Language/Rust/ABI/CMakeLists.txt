@@ -1,1 +1,2 @@
-add_subdirectory(stdrust)
+add_subdirectory(stdrust1)
+add_subdirectory(stdrust2)

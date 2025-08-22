@@ -20,17 +20,17 @@ static std::map<std::string, std::string> channel_impl_map;
 static std::map<std::string, std::string> channel_type_map;
 /* Map each channel to its size (number of tokens it can carry). */
 static std::map<std::string, std::string> channel_size_map;
-static std::map<std::string, Actor_Conversion_Data*> actor_data_map;
+static std::map<std::string, Actor_Conversion_Data *> actor_data_map;
 /* Map actor_instance_name_port_name to the name of the generated channel. */
 static std::map<std::string, std::string> actorport_channel_map;
-static std::map<std::string, IR::Actor_Instance*> actorname_instance_map; // Not for composit actors, they carry their parameters inside!
+static std::map<std::string, IR::Actor_Instance *> actorname_instance_map; // Not for composit actors, they carry their parameters inside!
 static std::vector<std::string> global_scheduling_routines;
 static std::set<std::string> actor_original;
 
 static std::string find_channel_type(
 	std::string port_name,
-	std::vector<IR::Buffer_Access>& ports,
-	std::map<std::string, std::string>& global_map)
+	std::vector<IR::Buffer_Access> &ports,
+	std::map<std::string, std::string> &global_map)
 {
 	for (auto it = ports.begin(); it != ports.end(); ++it)
 	{
@@ -43,20 +43,20 @@ static std::string find_channel_type(
 		}
 	}
 	// this cannot happen as this is detected early during network reading
-	throw Code_Generation::Code_Generation_Exception{ "Cannot find type for port." };
+	throw Code_Generation::Code_Generation_Exception{"Cannot find type for port."};
 }
 
 static std::string generate_actor_constructor_parameters(
 	std::string name,
-	Actor_Conversion_Data* data,
+	Actor_Conversion_Data *data,
 	bool static_alloc)
 {
 	std::string result;
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 
 	result.append("\"" + name + "\"");
 	for (auto param_it = data->get_parameter_order().begin();
-		param_it != data->get_parameter_order().end(); ++param_it)
+		 param_it != data->get_parameter_order().end(); ++param_it)
 	{
 		result.append(", ");
 		if (actorport_channel_map.contains(name + "_" + *param_it))
@@ -65,12 +65,19 @@ static std::string generate_actor_constructor_parameters(
 			{
 				result.append("&");
 			}
-			result.append(name + "_" + *param_it);
+			if (c->get_target_language() == Target_Language::rust2)
+			{
+				result.append(actorport_channel_map[name + "_" + *param_it] + ".clone()");
+			}
+			else
+			{
+				result.append(name + "_" + *param_it);
+			}
 		}
 		else if (actorname_instance_map.contains(name))
 		{
 			// only true for non-merged actor instances
-			IR::Actor_Instance* instance = actorname_instance_map[name];
+			IR::Actor_Instance *instance = actorname_instance_map[name];
 			if (instance->get_parameters().contains(*param_it))
 			{
 				result.append(actorname_instance_map[name]->get_parameters()[*param_it]);
@@ -88,7 +95,7 @@ static std::string generate_actor_constructor_parameters(
 				else
 				{
 					// No Parameter value in the network, no default parameter = bug
-					throw Code_Generation::Code_Generation_Exception{ "No Parameter value given for " + name + " parameter: " + *param_it };
+					throw Code_Generation::Code_Generation_Exception{"No Parameter value given for " + name + " parameter: " + *param_it};
 				}
 			}
 		}
@@ -104,20 +111,20 @@ static std::string generate_actor_constructor_parameters(
 }
 
 static std::string generate_channels(
-	IR::Dataflow_Network* dpn,
-	Optimization::Optimization_Data_Phase1* opt_data1,
-	Optimization::Optimization_Data_Phase2* opt_data2,
-	Mapping::Mapping_Data* map_data)
+	IR::Dataflow_Network *dpn,
+	Optimization::Optimization_Data_Phase1 *opt_data1,
+	Optimization::Optimization_Data_Phase2 *opt_data2,
+	Mapping::Mapping_Data *map_data)
 {
 	std::string result;
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 	for (auto it = dpn->get_edges().begin();
-		it != dpn->get_edges().end(); ++it)
+		 it != dpn->get_edges().end(); ++it)
 	{
-		IR::Actor_Instance* source = it->get_source();
-		IR::Actor_Instance* sink = it->get_sink();
-		Actor_Conversion_Data& d1 = source->get_conversion_data();
-		Actor_Conversion_Data& d2 = sink->get_conversion_data();
+		IR::Actor_Instance *source = it->get_source();
+		IR::Actor_Instance *sink = it->get_sink();
+		Actor_Conversion_Data &d1 = source->get_conversion_data();
+		Actor_Conversion_Data &d2 = sink->get_conversion_data();
 		if ((source->get_composit_actor() != nullptr) && (source->get_composit_actor() == sink->get_composit_actor()))
 		{
 			// This is just an edge inside a cluster, no need to create a channel object for it.
@@ -150,7 +157,7 @@ static std::string generate_channels(
 		if (typeSource != typeSink)
 		{
 			throw Code_Generation::Code_Generation_Exception{
-				"Types of " + it->get_source()->get_name() + "." + it->get_src_port() + " and " + it->get_sink()->get_name() + "." + it->get_dst_port() + " don't match." };
+				"Types of " + it->get_source()->get_name() + "." + it->get_src_port() + " and " + it->get_sink()->get_name() + "." + it->get_dst_port() + " don't match."};
 		}
 
 		actorport_channel_map[it->get_source()->get_name() + "_" + it->get_src_port()] = name;
@@ -184,16 +191,16 @@ static std::string generate_channels(
 this function now declares actor modules
 */
 static std::string generate_actor_instances(
-	IR::Dataflow_Network* dpn,
-	Optimization::Optimization_Data_Phase1* opt_data1,
-	Optimization::Optimization_Data_Phase2* opt_data2,
-	Mapping::Mapping_Data* map_data)
+	IR::Dataflow_Network *dpn,
+	Optimization::Optimization_Data_Phase1 *opt_data1,
+	Optimization::Optimization_Data_Phase2 *opt_data2,
+	Mapping::Mapping_Data *map_data)
 {
 	std::string result;
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 
 	for (auto it = dpn->get_actor_instances().begin();
-		it != dpn->get_actor_instances().end(); ++it)
+		 it != dpn->get_actor_instances().end(); ++it)
 	{
 		if ((*it)->get_composit_actor() != nullptr)
 		{
@@ -212,7 +219,7 @@ static std::string generate_actor_instances(
 
 			// Convert each character to lowercase to match the .rs file name
 			std::transform(tmp_name.begin(), tmp_name.end(), tmp_name.begin(), [](unsigned char c)
-				{ return std::tolower(c); });
+						   { return std::tolower(c); });
 
 			// mod actor1;
 			t.append("mod " + tmp_name);
@@ -231,7 +238,7 @@ static std::string generate_actor_instances(
 	result.append("// composit actors\n");
 
 	for (auto it = dpn->get_composit_actors().begin();
-		it != dpn->get_composit_actors().end(); ++it)
+		 it != dpn->get_composit_actors().end(); ++it)
 	{
 		if (actor_original.find((*it)->get_conversion_data().get_class_name()) == actor_original.end())
 		{
@@ -240,7 +247,7 @@ static std::string generate_actor_instances(
 
 			// Convert each character to lowercase to match the .rs file name
 			std::transform(tmp_name.begin(), tmp_name.end(), tmp_name.begin(), [](unsigned char c)
-				{ return std::tolower(c); });
+						   { return std::tolower(c); });
 			// mod actor;
 			t.append("mod " + tmp_name);
 			t.append(";\n");
@@ -258,21 +265,46 @@ static std::string generate_actor_instances(
 }
 
 static std::string generate_main(
-	IR::Dataflow_Network* dpn,
-	Optimization::Optimization_Data_Phase1* opt_data1,
-	Optimization::Optimization_Data_Phase2* opt_data2,
-	Mapping::Mapping_Data* map_data)
+	IR::Dataflow_Network *dpn,
+	Optimization::Optimization_Data_Phase1 *opt_data1,
+	Optimization::Optimization_Data_Phase2 *opt_data2,
+	Mapping::Mapping_Data *map_data)
 {
 	std::string result;
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 
-	result.append("#[tokio::main(flavor = \"multi_thread\")]\n");
-	result.append("async fn main() {\n");
+	if (c->get_orcc_compat())
+	{
+		result.append("use std::{env, ffi::CString};\n");
 
-	// if (c->get_orcc_compat())
-	// {
-	// 	result.append("\tparse_command_line_input(argc, argv);\n");
-	// }
+		result.append("extern \"C\" {fn parse_command_line_input(argc: i32, argv: *const *const i8);}\n");
+	}
+
+	result.append("#[allow(non_snake_case)]\n");
+	if (c->get_target_language() == Target_Language::rust1)
+	{
+		result.append("#[tokio::main(flavor = \"multi_thread\")]\n");
+		result.append("async fn main() {\n");
+	}
+	else
+	{
+		result.append("fn main() {\n");
+	}
+
+	if (c->get_orcc_compat())
+	{
+		// Collect command-line arguments in Rust
+		result.append("\tlet args: Vec<String> = env::args().collect();");
+
+		// Convert arguments into C-style strings (CString) and collect pointers
+		result.append("\tlet argc = args.len() as i32;\n");
+
+		// Create a Vec of raw pointers (i.e., *const i8) for each argument
+		result.append("\tlet argv: Vec<*const i8> = args.iter().map(|arg| { CString::new(arg.clone()).unwrap().into_raw() as *const i8 }).collect();\n");
+
+		// Pass the arguments to the C function (unsafe because we are working with raw pointers)
+		result.append("\tunsafe {parse_command_line_input(argc, argv.as_ptr());}\n\n");
+	}
 
 	// initialize channels
 	result.append("\t// Initialize channels\n");
@@ -283,7 +315,7 @@ static std::string generate_main(
 		ABI_CHANNEL_INIT(c, tmp, it->first, it->second, channel_impl_map[tmp_name], channel_type_map[tmp_name], channel_size_map[tmp_name], "\t");
 		result.append(tmp + "\n");
 	}
-	std::cout << "Main Inside. 1" << std::endl;
+
 	result.append("\n\n");
 
 	// initialize actor instances and call their init function
@@ -297,14 +329,31 @@ static std::string generate_main(
 		result.append(");\n");
 		result.append("\t" + it->first + ".initialize();\n");
 	}
-	std::cout << "Main Inside. 2" << std::endl;
+
 	result.append("\n\n");
 
+	if (c->get_target_language() == Target_Language::rust2)
+	{
+		result.append("\tlet mut actors: Vec<&mut dyn Actor> = vec![\n");
+		for (auto it = actor_data_map.begin(); it != actor_data_map.end(); ++it)
+		{
+			result.append("\t\t&mut " + it->first + ",\n");
+		}
+		result.append("\t];\n");
+	}
+
 	// Scheduling
-	result.append(Scheduling::generate_global_scheduler_rust(dpn, opt_data1, opt_data2, map_data,
-		global_scheduling_routines, actor_data_map));
-	result.append("\n\n");
-	std::cout << "Main Inside. 3" << std::endl;
+	if (c->get_target_language() == Target_Language::rust1)
+	{
+		result.append(Scheduling::generate_global_scheduler_rust(dpn, opt_data1, opt_data2, map_data,
+																 global_scheduling_routines, actor_data_map));
+		result.append("\n\n");
+	}
+	else
+	{
+		result.append("\tglobal_scheduler(&mut actors);\n");
+	}
+
 	/*
 	we cant deal with this part directly now as we dont use a function from outside of main
 	but generate it inside depending on the scheduling starategy
@@ -361,19 +410,23 @@ static std::string generate_main(
 	return result;
 }
 
+static std::string generate_orcc_main()
+{
+}
+
 std::pair<Code_Generation_Rust::Header, Code_Generation_Rust::Source>
 Code_Generation_Rust::generate_core(
-	IR::Dataflow_Network* dpn,
-	Optimization::Optimization_Data_Phase1* opt_data1,
-	Optimization::Optimization_Data_Phase2* opt_data2,
-	Mapping::Mapping_Data* map_data,
-	std::vector<std::string>& includes)
+	IR::Dataflow_Network *dpn,
+	Optimization::Optimization_Data_Phase1 *opt_data1,
+	Optimization::Optimization_Data_Phase2 *opt_data2,
+	Mapping::Mapping_Data *map_data,
+	std::vector<std::string> &includes)
 {
 #ifdef DEBUG_MAIN_GENERATION
 	std::cout << "Main Generation." << std::endl;
 #endif
 
-	Config* c = c->getInstance();
+	Config *c = c->getInstance();
 
 	std::string code{};
 
@@ -395,21 +448,34 @@ Code_Generation_Rust::generate_core(
 	include_code.append("mod channel;\n");
 	include_code.append("mod actor;\n");
 	include_code.append("use actor::Actor;\n");
-	include_code.append("use channel::new_channel;\n");
-	include_code.append("use tokio::task::JoinHandle;\n");
+
+	// include_code.append("use tokio::task::JoinHandle;\n");
+	if (c->get_target_language() == Target_Language::rust1)
+	{
+		include_code.append("use channel::new_channel;\n");
+	}
+	else
+	{
+		include_code.append("use channel::Channel;\n");
+		include_code.append("use rayon::prelude::*;\n");
+	}
 
 	code.append(include_code);
-	std::cout << "Main Generation." << std::endl;
 	code.append(generate_channels(dpn, opt_data1, opt_data2, map_data));
-	std::cout << "Main Generation. 2" << std::endl;
 	code.append("\n\n");
 	code.append(generate_actor_instances(dpn, opt_data1, opt_data2, map_data));
-	std::cout << "Main Generation. 3" << std::endl;
 	code.append("\n\n");
-	// the global scheduler will be generated inside of main
+
+	// the global scheduler will be generated inside of main in case of rust1 (Tokio)
+	if (c->get_target_language() == Target_Language::rust2)
+	{
+		code.append(Scheduling::generate_global_scheduler_rust(dpn, opt_data1, opt_data2, map_data,
+															   global_scheduling_routines, actor_data_map));
+		code.append("\n\n");
+	}
+
 	code.append(generate_main(dpn, opt_data1, opt_data2, map_data));
-	std::cout << "Main Generation. 4" << std::endl;
-	std::filesystem::path path{ c->get_target_dir() };
+	std::filesystem::path path{c->get_target_dir()};
 	path /= "src";
 	std::string filename;
 
@@ -417,10 +483,10 @@ Code_Generation_Rust::generate_core(
 
 	path /= filename;
 
-	std::ofstream output_file{ path };
+	std::ofstream output_file{path};
 	if (output_file.fail())
 	{
-		throw Code_Generation::Code_Generation_Exception{ "Cannot open the file " + path.string() };
+		throw Code_Generation::Code_Generation_Exception{"Cannot open the file " + path.string()};
 	}
 	output_file << code;
 	output_file.close();
