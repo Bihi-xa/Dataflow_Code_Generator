@@ -15,8 +15,8 @@
 */
 namespace Converter_RVC_Rust
 {
-	std::string get_value_based_on_type(std::string& type_str);
-
+	std::string get_value_based_on_type(std::string &type_str);
+	
 	std::string convert_List_comp_act_var(
 		Token &t,
 		Token_Container &token_producer,
@@ -423,7 +423,7 @@ namespace Converter_RVC_Rust
 		bool is_list, // is_list => rvalue
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
-		std::set<std::string>& actor_var_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix = "");
 
 	/*
@@ -451,6 +451,7 @@ namespace Converter_RVC_Rust
 		std::string string_to_convert,
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
+		std::set<std::string> &actor_var_map,
 		std::map<std::string, std::string> &symbol_type_map,
 		std::string prefix,
 		std::string outer_expression);
