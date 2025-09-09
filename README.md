@@ -12,6 +12,7 @@ specifications as input!
 Only partial checks are applied, in the worst case the tool might occasionally assume that
 the input is a completely valid CAL+XDF specification.
 
+**Note:** intergration of Rust code generation targeting Tokio and Rayon.
 
 ## Code Generator Design
 
@@ -146,7 +147,7 @@ The code generator provides the following command line options:
 * --orcc : Add ORCC compatibility, the generated code can parse the command lines and provides the options.h header that is required by the majority of the native code. This code is copied from ORCC generated code. It allows to use the ORCC demo applications, e.g. for testing.
 * --cmake : Generates a simple CMake file to build the generated project. Additional files, e.g. required to fulfill the @native references must be added manually!
 * --static_alloc : Allocate channels and actions in the main statically and avoid usage of the new operator
-* --abi=\<stdc|stdcpp\> : Target ABI/language, c++ is the default
+* --abi=\<stdc|stdcpp|stdrust1|stdrust2\> : Target ABI/language, c++ is the default
 
 ### Communication Channels
 * -s \<number\> : The default size of the buffers. This size is used if no optimization step determines another size or the size of the channel is given in the XDF file.
@@ -180,6 +181,9 @@ The code generator provides the following command line options:
 ### Optimizations
 * --prune_unconnected : Remove unconnected channels from actors instances and generate separate code for them. Otherwise the unconnected channels are set to nullptr for the constructor parameters. This feature is rather experimental and not properly tested! Reading tokens from ports without an attached channel are replaced by using variables initalized with zero or uninitialized arrays.
 * --opt_sched : Fetch channel sizes before entering the local scheduler loop and use this values for scheduling. This avoids reading the channel sizes during each scheduler iteration, in the worst-case several times.
+
+### Natives
+In case of Rust the native files should be moved to the native directory, which is created automatically.
 
 ## Future Work
 * Implementation of Actor Merging
