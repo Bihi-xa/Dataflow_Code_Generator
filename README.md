@@ -147,7 +147,7 @@ The code generator provides the following command line options:
 * --orcc : Add ORCC compatibility, the generated code can parse the command lines and provides the options.h header that is required by the majority of the native code. This code is copied from ORCC generated code. It allows to use the ORCC demo applications, e.g. for testing.
 * --cmake : Generates a simple CMake file to build the generated project. Additional files, e.g. required to fulfill the @native references must be added manually!
 * --static_alloc : Allocate channels and actions in the main statically and avoid usage of the new operator
-* --abi=\<stdc|stdcpp|stdrust1|stdrust2\> : Target ABI/language, c++ is the default
+* --abi=\<stdc|stdcpp|stdrust1|stdrust2\> : Target ABI/language, c++ is the default, rust1 for Tokio , rust2 for Rayon.
 
 ### Communication Channels
 * -s \<number\> : The default size of the buffers. This size is used if no optimization step determines another size or the size of the channel is given in the XDF file.
