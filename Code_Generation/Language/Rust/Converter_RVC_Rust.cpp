@@ -6,6 +6,7 @@
 #include "Tokenizer/Tokenizer.hpp"
 #include <unordered_map>
 #include <unordered_set>
+#include <regex>
 
 namespace Converter_RVC_Rust
 {
@@ -13,6 +14,7 @@ namespace Converter_RVC_Rust
 		std::string string_to_convert,
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
+		std::set<std::string> &actor_var_map,
 		std::map<std::string, std::string> &symbol_type_map,
 		std::string prefix,
 		std::string outer_expression);
@@ -607,6 +609,7 @@ namespace Converter_RVC_Rust
 			Token_Container &token_prod,
 			std::map<std::string, std::string> &local_map,
 			std::map<std::string, std::string> &symbol_type_map,
+			bool is_list_comp,
 			std::string prefix = "")
 		{
 			Config *c = c->getInstance();
@@ -614,8 +617,8 @@ namespace Converter_RVC_Rust
 			std::string tail{};
 			std::string adjusted_prefix{prefix};
 
-			while ((t.str != "do") && (t.str != "}") && (t.str != ":") && (t.str != "]"))
-			{ // }, ] due to list comprehension
+			while ((t.str != "do") && (t.str != "}") && (t.str != ":") && (!(is_list_comp && t.str == "]"))) // }, ] due to list comprehension
+			{
 				if ((t.str == "for") || (t.str == "foreach"))
 				{
 					t = token_prod.get_next_token();
@@ -623,7 +626,21 @@ namespace Converter_RVC_Rust
 					{
 						// convert type is discarded, Rust automatically infers the type of the loop variable
 						t = token_prod.get_next_token(); // get variable name
-						std::string var_name = t.str;
+						std::string var_name;
+
+						// in case if variable as the same name as another
+						if (t.str == "self")
+						{
+
+							t = token_prod.get_next_token(); // .
+							t = token_prod.get_next_token(); // the real name
+							var_name += t.str;
+						}
+						else
+						{
+							var_name = t.str;
+						}
+
 						local_map[var_name] = "";
 						// symbol_type_map[var_name] = type;
 
@@ -644,7 +661,7 @@ namespace Converter_RVC_Rust
 
 						t = token_prod.get_next_token(); // skip ".."
 						std::string range_end{};
-						while (t.str != "do" && t.str != "," && t.str != ":" && t.str != "}" && t.str != "]")
+						while (t.str != "do" && t.str != "," && t.str != ":" && t.str != "}" && (!(is_list_comp && t.str == "]")))
 						{
 							if (t.str == "")
 								throw Wrong_Token_Exception{"Unexpected End of File."};
@@ -782,6 +799,7 @@ namespace Converter_RVC_Rust
 		Token_Container &token_producer,
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
+		std::set<std::string> &actor_var_map,
 		std::map<std::string, std::string> &symbol_type_map,
 		std::string prefix,
 		std::string outer_expression)
@@ -825,7 +843,7 @@ namespace Converter_RVC_Rust
 			}
 			else if (t.str == "[")
 			{
-				expression1.append(convert_brackets(t, token_producer, true, global_map, local_map, prefix).first);
+				expression1.append(convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix).first);
 			}
 			else if (t.str == "")
 			{
@@ -841,7 +859,7 @@ namespace Converter_RVC_Rust
 		if (nested)
 		{
 			expression1 =
-				convert_inline_if_with_list_assignment(expression1, global_map, local_map, symbol_type_map,
+				convert_inline_if_with_list_assignment(expression1, global_map, local_map, actor_var_map, symbol_type_map,
 													   prefix + "\t", outer_expression);
 		}
 		else
@@ -882,7 +900,7 @@ namespace Converter_RVC_Rust
 			}
 			else if (t.str == "[")
 			{
-				expression2.append(convert_brackets(t, token_producer, true, global_map, local_map, prefix).first);
+				expression2.append(convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix).first);
 			}
 			else if (t.str == "")
 			{
@@ -897,7 +915,7 @@ namespace Converter_RVC_Rust
 		if (nested)
 		{
 			expression2 =
-				convert_inline_if_with_list_assignment(expression2, global_map, local_map, symbol_type_map,
+				convert_inline_if_with_list_assignment(expression2, global_map, local_map, actor_var_map, symbol_type_map,
 													   prefix + "\t", outer_expression);
 		}
 		else
@@ -929,13 +947,14 @@ namespace Converter_RVC_Rust
 		std::string string_to_convert,
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
+		std::set<std::string> &actor_var_map,
 		std::map<std::string, std::string> &symbol_type_map,
 		std::string prefix,
 		std::string outer_expression)
 	{
 		Tokenizer tok{string_to_convert};
 		Token t = tok.get_next_token();
-		return convert_inline_if_with_list_assignment(t, tok, global_map, local_map, symbol_type_map, prefix, outer_expression);
+		return convert_inline_if_with_list_assignment(t, tok, global_map, local_map, actor_var_map, symbol_type_map, prefix, outer_expression);
 	}
 
 	std::pair<std::string, bool> convert_inline_if(
@@ -1165,12 +1184,15 @@ namespace Converter_RVC_Rust
 				++idx;
 			}
 			in rust it should be :
-			let mut result = Vec::new();
+			let idx = 0;
 			for x in [1, 2, 3].iter() {
-				result.push(x * 2);
+				result[idx] = a * 2;
+				++idx;
 			}
 			*/
+
 			Config *c = c->getInstance();
+			std::set<std::string> actor_var_map = std::set<std::string>();
 			while (list_name.find(" ") != std::string::npos)
 			{
 				list_name.erase(list_name.find(" "), 1);
@@ -1178,7 +1200,7 @@ namespace Converter_RVC_Rust
 			t = token_producer.get_next_token(); // skip {
 
 			std::string index_name = find_unused_name(global_map, local_map);
-			std::string output = prefix + "let mut " + list_name + " = Vec::new();\n";
+			std::string output{prefix + "let mut " + index_name + " = 0;\n"};
 			std::string command;
 			bool had_inner_list_comprehension = false;
 
@@ -1189,7 +1211,15 @@ namespace Converter_RVC_Rust
 					std::string buffer = read_brace(t, token_producer, false);
 					Tokenizer tok(buffer);
 					Token token_tok = tok.get_next_token();
-					std::string expr = nested ? outer_expression + "[" + index_name + "]" : list_name;
+					std::string expr;
+					if (nested)
+					{
+						expr = outer_expression + "[" + index_name + "]";
+					}
+					else
+					{
+						expr = list_name + "[" + index_name + "]";
+					}
 					command.append(convert_list_comprehension(token_tok, tok, list_name,
 															  global_map, local_map, symbol_type_map,
 															  prefix + "\t",
@@ -1200,7 +1230,14 @@ namespace Converter_RVC_Rust
 				{
 					if (!had_inner_list_comprehension)
 					{
-						command.append(prefix + "\t" + list_name + ".push(");
+						if (outer_expression == "")
+						{
+							command.append(prefix + "\t" + list_name + "[" + index_name + "]");
+						}
+						else
+						{
+							command.append(prefix + "\t" + outer_expression + "[" + index_name + "]");
+						}
 					}
 					std::string tmp_command;
 					while ((t.str != ":") && (t.str != "}"))
@@ -1208,6 +1245,8 @@ namespace Converter_RVC_Rust
 						if (t.str == "{")
 						{
 							std::string tmp = read_brace(t, token_producer);
+							std::replace(tmp.begin(), tmp.end(), '{', '[');
+							std::replace(tmp.begin(), tmp.end(), '}', ']');
 							tmp_command.append(tmp);
 						}
 						else if (t.str == "if")
@@ -1221,7 +1260,8 @@ namespace Converter_RVC_Rust
 									tmp_str.erase(tmp_str.find("\t"), 1);
 								}
 								command = convert_inline_if_with_list_assignment(buf.first, global_map,
-																				 local_map, symbol_type_map,
+																				 local_map,
+																				 actor_var_map, symbol_type_map,
 																				 prefix + "\t",
 																				 tmp_str);
 								tmp_command = "";
@@ -1244,12 +1284,35 @@ namespace Converter_RVC_Rust
 					if (t.str == ":")
 					{
 						t = token_producer.get_next_token();
-						auto head_tail = convert_for_head(t, token_producer, local_map, symbol_type_map, prefix);
+						std::pair<std::string, std::string> head_tail = convert_for_head(t, token_producer, local_map, symbol_type_map, true, prefix);
 						output.append(head_tail.first);
-						output.append(command + tmp_command + ");\n");
+						std::string tabs;
+						int for_count{-1};
+						size_t pos = head_tail.first.find("for");
+						while (pos != std::string::npos)
+						{
+							++for_count;
+							pos = head_tail.first.find("for", pos + 1);
+						}
+						while (for_count > 0)
+						{
+							tabs.append("\t");
+							--for_count;
+						}
+						output.append(tabs);
+						if (tmp_command.empty())
+						{
+							output.append(command);
+						}
+						else
+						{
+							output.append(command + " = " + tmp_command + ";\n");
+						}
+						output.append(prefix + tabs + "\t" + index_name + " += 1;\n");
 						output.append(head_tail.second);
 					}
-					else if (t.str == "]")
+
+					else if (t.str == "}")
 					{
 						output.append(prefix + command + tmp_command + ");\n");
 					}
@@ -1257,6 +1320,7 @@ namespace Converter_RVC_Rust
 				if (t.str == ",")
 				{
 					t = token_producer.get_next_token();
+					output.append(prefix + index_name + " += 1;\n");
 					had_inner_list_comprehension = false;
 				}
 			}
@@ -1289,11 +1353,11 @@ namespace Converter_RVC_Rust
 		bool is_list, // is_list => rvalue
 		std::map<std::string, std::string> &global_map,
 		std::map<std::string, std::string> &local_map,
+		std::set<std::string> &actor_var_map,
 		std::string prefix)
 	{
 		/*
 		Use [ and ] for Rust array/vector literals (Rust uses square brackets, no {} for collections)
-
 		*/
 		bool list_comprehension{false};
 		std::string output{};
@@ -1311,7 +1375,7 @@ namespace Converter_RVC_Rust
 					if ((previous_token_string == "[") || (previous_token_string == ","))
 					{
 						std::pair<std::string, bool> ret_val =
-							convert_brackets(t, token_producer, is_list, global_map, local_map, prefix);
+							convert_brackets(t, token_producer, is_list, global_map, local_map, actor_var_map, prefix);
 						output.append(ret_val.first);
 						if (ret_val.second)
 						{
@@ -1321,7 +1385,7 @@ namespace Converter_RVC_Rust
 					else
 					{
 						std::pair<std::string, bool> ret_val =
-							convert_brackets(t, token_producer, false, global_map, local_map, prefix);
+							convert_brackets(t, token_producer, false, global_map, local_map, actor_var_map, prefix);
 						output.append(ret_val.first);
 						if (ret_val.second)
 						{
@@ -1332,7 +1396,7 @@ namespace Converter_RVC_Rust
 				}
 				else if ((t.str == "]") || (t.str == "}"))
 				{
-					output.append("]");
+					output.append(" ]");
 					previous_token_string = t.str;
 					t = token_producer.get_next_token();
 					break;
@@ -1356,6 +1420,7 @@ namespace Converter_RVC_Rust
 				}
 				else
 				{
+
 					if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && ((global_map[t.str] != "function") || (global_map[t.str] != "native")))
 					{
 						output.append(global_map[t.str]);
@@ -1366,7 +1431,14 @@ namespace Converter_RVC_Rust
 					}
 					else
 					{
-						output.append(" " + t.str);
+						if (actor_var_map.count(t.str) > 0)
+						{
+							output.append(" self." + t.str);
+						}
+						else
+						{
+							output.append(" " + t.str);
+						}
 					}
 					previous_token_string = t.str;
 					t = token_producer.get_next_token();
@@ -1396,12 +1468,10 @@ namespace Converter_RVC_Rust
 			std::string params;
 			params.append("(&mut self");
 			t = token_producer.get_next_token();
-
 			while (t.str != ")")
 			{
 				if ((t.str == "uint") || (t.str == "int") || (t.str == "String") || (t.str == "bool") || (t.str == "half") || (t.str == "float"))
 				{
-					// params.append(convert_type(t, token_producer, global_map, local_map) + " ");
 					std::string rust_type = convert_type(t, token_producer, global_map, local_map);
 					params.append(", ");
 					params.append(t.str); // must be the parameter name
@@ -1430,7 +1500,6 @@ namespace Converter_RVC_Rust
 			t = token_producer.get_next_token(); // must be the return type
 			std::string rust_ret_type = convert_type(t, token_producer, global_map, local_map);
 			output.append("fn " + symbol_name + params + " -> " + rust_ret_type + " {\n");
-
 			// HEAD END
 			t = token_producer.get_next_token();
 			while ((t.str != "end") && (t.str != "endfunction"))
@@ -1506,17 +1575,47 @@ namespace Converter_RVC_Rust
 			while (t.str != ")")
 			{
 
-				output.append(", ");
+				// output.append(", ");
 				if ((t.str == "uint") || (t.str == "int") || (t.str == "String") || (t.str == "bool") || (t.str == "half") || (t.str == "float"))
 				{
 					std::string rust_type = convert_type(t, token_producer, global_map, local_map);
 					// t = token_producer.get_next_token(); // parameter name
-					output.append(t.str + ": " + rust_type);
+					std::string param_name = t.str;
+					t = token_producer.get_next_token();
+					std::cout << "Token is: " << t.str << std::endl;
+					std::string size_value;
+					while (t.str == "[")
+					{
+						auto bracket_result = convert_brackets(t, token_producer, false, global_map, local_map, actor_var_map, prefix).first;
+
+						// Extract size name between brackets (e.g., INPUT_SIZE from "[INPUT_SIZE]")
+						std::string inner = bracket_result.substr(1, bracket_result.length() - 2); // remove [ and ]
+
+						if (local_map.count(inner) > 0 && !local_map[inner].empty())
+						{
+							size_value = local_map[inner];
+						}
+						else if (global_map.count(inner) > 0 && !global_map[inner].empty())
+						{
+							size_value = global_map[inner];
+						}
+						else
+						{
+							size_value = inner; // fallback
+						}
+
+						rust_type = "[" + rust_type + "; " + size_value + "]";
+					}
+					output.append(", " + param_name + ": " + rust_type);
 					local_map[t.str] = rust_type;
+					continue;
 				}
 				else if (t.str == "")
 				{
 					throw Wrong_Token_Exception{"Unexpected End of File."};
+				}
+				else if (t.str == ",")
+				{
 				}
 				else
 				{
@@ -1620,6 +1719,7 @@ namespace Converter_RVC_Rust
 				}
 				t = token_producer.get_next_token();
 			}
+
 			output.append(") {\n");
 			t = token_producer.get_next_token(); // skip then
 			while ((t.str != "end") && (t.str != "endif"))
@@ -1685,7 +1785,7 @@ namespace Converter_RVC_Rust
 		std::string output{};
 		if ((t.str == "for") || (t.str == "foreach"))
 		{
-			std::pair<std::string, std::string> head_tail = convert_for_head(t, token_producer, local_map, symbol_type_map); // t should contain do after this function
+			std::pair<std::string, std::string> head_tail = convert_for_head(t, token_producer, local_map, symbol_type_map, false); // t should contain do after this function
 
 			// append loop header (e.g., "for x in y {")
 			output.append(prefix + head_tail.first);
@@ -1920,8 +2020,10 @@ namespace Converter_RVC_Rust
 		std::string type;
 		bool println{false};
 		bool print{false};
+		std::string dummy_val;
 		if ((t.str == "uint") || (t.str == "int") || (t.str == "String") || (t.str == "bool") || (t.str == "half") || (t.str == "float"))
 		{
+			dummy_val = get_value_based_on_type(t.str);
 			type = convert_type(t, token_producer, global_map, local_map);
 			// output.append(type + " ");
 			type_specified = true;
@@ -1974,7 +2076,7 @@ namespace Converter_RVC_Rust
 		while (t.str == "[")
 		{
 			// output.append(convert_brackets(t, token_producer, false, global_map, local_map, prefix).first);
-			auto bracket_result = convert_brackets(t, token_producer, false, global_map, local_map, prefix).first;
+			auto bracket_result = convert_brackets(t, token_producer, false, global_map, local_map, actor_var_map, prefix).first;
 
 			// Extract size name between brackets (e.g., INPUT_SIZE from "[INPUT_SIZE]")
 			std::string inner = bracket_result.substr(1, bracket_result.length() - 2); // remove [ and ]
@@ -1991,14 +2093,16 @@ namespace Converter_RVC_Rust
 			{
 				size_value = inner; // fallback
 			}
-
+			dummy_val = "[" + dummy_val + "; " + size_value + "]";
 			type = "[" + type + "; " + size_value + "]";
 		}
 		// std::cout << "Symbole: " << symbol_name << std::endl;
+		// std::cout << "\n-----------------------" << std::endl;
 		// for (const auto &pair : global_map)
 		// {
 		// 	std::cout << pair.first << " : " << pair.second << " , ";
 		// }
+		// std::cout << "\n-----------------------" << std::endl;
 		if (t.str == ":=")
 		{
 			if (type_specified)
@@ -2021,11 +2125,11 @@ namespace Converter_RVC_Rust
 			else if (t.str == "[")
 			{
 				std::pair<std::string, bool> ret_val =
-					convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+					convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 				if (ret_val.second)
 				{
 					// remove = sign
-					output.erase(output.find_last_of("="));
+					// output.erase(output.find_last_of("="));
 					if (!type_specified)
 					{ // if there is no type, this is not the declaration, thus the part before the equal sign can be skipped
 						while (output.find("\t") != std::string::npos)
@@ -2069,7 +2173,7 @@ namespace Converter_RVC_Rust
 						output = "";
 					}
 					// convert the expression to an if statement
-					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, symbol_type_map, prefix, symbol_name));
+					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, actor_var_map, symbol_type_map, prefix, symbol_name));
 				}
 				else
 				{
@@ -2127,41 +2231,6 @@ namespace Converter_RVC_Rust
 						}
 						value.append(t.str);
 
-						// if (cal_ops.find(t.str) != cal_ops.end())
-						// {
-						// 	value.append(t.str);
-						// }
-						// else
-						// {
-						// 	if (actor_var_map.count(t.str) > 0) // checks if it is an actor variable
-						// 	{
-						// 		value.append("( self." + t.str + ") as " + type + " ");
-						// 	}
-						// 	else
-						// 	{
-						// 		value.append(t.str);
-						// 	}
-						// }
-
-						// if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && (global_map[t.str] != "native") && (global_map[t.str] != "function")) // checks if it is an action variable
-						// {
-						// }
-						// else
-						// {
-						// 	value.append(t.str);
-						// }
-
-						// std::cout << "\nTOKEN: " << t.str << std::endl;
-						// for (const auto &pair : local_map)
-						// {
-						// 	std::cout << pair.first << " : " << pair.second << " , ";
-						// }
-						// std::cout << "\n---------------------------------------------- " << std::endl;
-						// if (is_native && t.str == ")")
-						// {
-						// 	value.append(" ).try_into().unwrap()} ");
-						// }
-
 						if (t.str == "[")
 						{
 							value.append("(");
@@ -2195,18 +2264,26 @@ namespace Converter_RVC_Rust
 							t = token_producer.get_next_token();
 						}
 					}
-					// std::cout << "\nTOKEN: " << t.str << std::endl;
 				}
 
 				if (only_const_values)
 				{
-
 					int result = evaluate_constant_expression(value, global_map, local_map);
-					output.append(" = " + std::to_string(result) + ";\n");
+
+					if (type_specified || size_value == "")
+					{
+						output.append(" = " + std::to_string(result) + ";\n");
+					}
+					else
+					{
+
+						output.append("[" + size_value + " ] = " + std::to_string(result) + ";\n");
+					}
 					local_map[symbol_name] = ""; // std::to_string(result); //insert into the map to find it, if it is used to calculate the size of a type!!!
 				}
 				else
 				{
+
 					// we need to know if it is a declaration or not
 					if (type_specified || size_value == "")
 					{
@@ -2238,7 +2315,7 @@ namespace Converter_RVC_Rust
 			}
 			else if (t.str == "[")
 			{
-				std::pair<std::string, bool> ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+				std::pair<std::string, bool> ret_val = convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 				if (ret_val.second)
 				{
 					// remove const, because a list cannot be filled by a loop if it is const!
@@ -2290,7 +2367,7 @@ namespace Converter_RVC_Rust
 						output = "";
 					}
 					// convert the expression to an if statement
-					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, symbol_type_map, prefix, symbol_name));
+					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, actor_var_map, symbol_type_map, prefix, symbol_name));
 				}
 				else
 				{
@@ -2372,7 +2449,7 @@ namespace Converter_RVC_Rust
 				if (t.str == "(")
 				{
 					output.append(convert_function_call_brakets(t, token_producer, actor_var_map, println || print));
-					if (println)
+					if (println || print)
 					{
 						output.append(");\n");
 					}
@@ -2396,7 +2473,15 @@ namespace Converter_RVC_Rust
 			}
 			if (!println && !print && !is_fn && !return_statement)
 			{
-				output.append(": " + type + ";\n");
+				// cases where the variable of an action need to have an init value
+				if (t.str == "," || (t.str == "do"))
+				{
+					output.append(": " + type + " = " + dummy_val + ";\n");
+				}
+				else
+				{
+					output.append(": " + type + ";\n");
+				}
 			}
 			else if (!println && !print && is_fn)
 			{
@@ -2471,7 +2556,7 @@ namespace Converter_RVC_Rust
 		{
 			output.append(prefix + "let mut " + name + ": " + rust_type + " = ");
 			t = token_producer.get_next_token();
-			auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+			auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 
 			if (ret_val.second)
 			{
@@ -2489,9 +2574,9 @@ namespace Converter_RVC_Rust
 		else if (t.str == "=")
 		{
 			// Const assignment (not always useful in Rust)
-			output.append(prefix + "let " + name + ": " + rust_type + " = ");
+			output.append(prefix + "const " + name + ": " + rust_type + " = ");
 			t = token_producer.get_next_token();
-			auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+			auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 
 			if (ret_val.second)
 			{
@@ -2766,12 +2851,16 @@ namespace Converter_RVC_Rust
 					// t = token_producer.get_next_token(); // param name
 
 					declaration.append(t.str + ": " + rust_type);
-					t = token_producer.get_next_token();
+					// t = token_producer.get_next_token();
 
-					if (t.str != ")")
-					{
-						declaration.append(", ");
-					}
+					// if (t.str != ")")
+					// {
+					// 	declaration.append(", ");
+					// }
+				}
+				else if (t.str == ",")
+				{
+					declaration.append(t.str);
 				}
 				else if (t.str == "")
 				{
@@ -2781,9 +2870,10 @@ namespace Converter_RVC_Rust
 				else
 				{
 					// This shouldn't happen
+					std::cout << "Native function conversion failed at token " << t.str << std::endl;
 					exit(5);
 				}
-				// t = token_producer.get_next_token();
+				t = token_producer.get_next_token();
 			}
 			declaration.append(")");
 			t = token_producer.get_next_token(); // -->
@@ -2962,7 +3052,7 @@ namespace Converter_RVC_Rust
 		t = token_producer.get_next_token();
 		return result;
 	}
-	static std::string get_value_based_on_type(const std::string &type_str)
+	std::string get_value_based_on_type(std::string &type_str)
 	{
 		if (type_str == "uint")
 		{
@@ -2972,7 +3062,7 @@ namespace Converter_RVC_Rust
 		{
 			return "0";
 		}
-		else if (type_str == "string")
+		else if (type_str == "String" || type_str == "string")
 		{
 			return "empty";
 		}
@@ -2986,7 +3076,7 @@ namespace Converter_RVC_Rust
 		}
 		else if (type_str == "float")
 		{
-			return "0";
+			return "0.0";
 		}
 		else
 		{
@@ -3025,6 +3115,14 @@ namespace Converter_RVC_Rust
 		// core::array::from_fn(|i| 0)
 		return "core::array::from_fn(|" + iterator + "| " + exp + ")";
 	}
+	// Replace Rust type (like i8, i32, u16, etc.) with "0"
+	std::string replace_type_with_zero(const std::string &rust_type)
+	{
+		// Regex matches Rust primitive integer types
+		static std::regex type_regex(R"((i8|i16|i32|i64|u8|u16|u32|u64|usize|isize|f32|f64))");
+		return std::regex_replace(rust_type, type_regex, "0");
+	}
+
 	std::string convert_list_act_var(
 		Token &t,
 		Token_Container &token_producer,
@@ -3051,6 +3149,14 @@ namespace Converter_RVC_Rust
 
 		t = token_producer.get_next_token(); // move past name
 
+		bool is_empty = false;
+		std::string dummy_value = replace_type_with_zero(rust_type);
+
+		if (t.str == ";")
+		{
+			is_empty = true;
+		}
+
 		std::string output;
 
 		// t = token_producer.get_next_token();
@@ -3059,7 +3165,7 @@ namespace Converter_RVC_Rust
 		// {
 
 		t = token_producer.get_next_token(); // skip = , :=
-		auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+		auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 
 		if (in_constructor)
 		{
@@ -3073,6 +3179,10 @@ namespace Converter_RVC_Rust
 				// core::array::from_fn(|i| 0)
 				output.append(prefix + symbol_name + ": " + ret_tmp + ",\n");
 			}
+			else if (is_empty)
+			{
+				output.append(prefix + symbol_name + ": " + dummy_value + ",\n");
+			}
 			else
 			{
 				output.append(prefix + symbol_name + ": " + ret_val.first + ",\n");
@@ -3083,44 +3193,7 @@ namespace Converter_RVC_Rust
 			output.append(prefix + symbol_name + ": " + rust_type + ",\n");
 		}
 
-		// if (ret_val.second)
-		// {
-		// 	// List comprehension: declare then assign inside loop
-		// 	output = prefix + name + ": " + rust_type + ",\n";
-		// 	// output += convert_list_comprehension(ret_val.first, name, global_map, local_map, symbol_type_map, prefix);
-		// }
-		// else
-		// {
-		// 	output.append(ret_val.first + ",");
-		// }
-
 		t = token_producer.get_next_token();
-		// }
-		// else if (t.str == "=")
-		// {
-		// 	// Const assignment (not always useful in Rust)
-		// 	output.append(prefix + symbol_name + ": " + rust_type + " = ");
-		// 	t = token_producer.get_next_token();
-		// 	auto ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
-
-		// 	if (ret_val.second)
-		// 	{
-		// 		// List comprehension
-		// 		output = prefix + "let mut " + symbol_name + ": " + rust_type + ";\n";
-		// 		output += convert_list_comprehension(ret_val.first, symbol_name, global_map, local_map, symbol_type_map, prefix);
-		// 	}
-		// 	else
-		// 	{
-		// 		output.append(ret_val.first + ";\n");
-		// 	}
-
-		// 	t = token_producer.get_next_token();
-		// }
-		// else
-		// {
-		// 	// Just declaration
-		// 	output.append(prefix + "let mut " + symbol_name + ": " + rust_type + ";\n");
-		// }
 
 		if ((symbol_name != symbol) && (symbol != "*"))
 		{
@@ -3164,6 +3237,7 @@ namespace Converter_RVC_Rust
 		std::string dummy_value;
 		bool println{false};
 		bool print{false};
+		std::set<std::string> actor_var_map = std::set<std::string>();
 
 		if ((t.str == "uint") || (t.str == "int") || (t.str == "String") || (t.str == "bool") || (t.str == "half") || (t.str == "float"))
 		{
@@ -3198,7 +3272,7 @@ namespace Converter_RVC_Rust
 
 		while (t.str == "[")
 		{
-			auto bracket_result = convert_brackets(t, token_producer, false, global_map, local_map, prefix).first;
+			auto bracket_result = convert_brackets(t, token_producer, false, global_map, local_map, actor_var_map, prefix).first;
 
 			// Extract size name between brackets (e.g., INPUT_SIZE from "[INPUT_SIZE]")
 			std::string inner = bracket_result.substr(1, bracket_result.length() - 2); // remove [ and ]
@@ -3216,8 +3290,12 @@ namespace Converter_RVC_Rust
 			{
 				size_value = inner; // fallback, e.g., "[UNKNOWN]"
 			}
-
+			if (type == "&str")
+			{
+				type = "&'static str";
+			}
 			type = "[" + type + "; " + size_value + "]";
+			dummy_value = "[" + dummy_value + "; " + size_value + "]";
 		}
 		// std::cout << "Symbole: " << symbol_name << std::endl;
 		// std::cout << "\n-----------------------" << std::endl;
@@ -3229,6 +3307,7 @@ namespace Converter_RVC_Rust
 
 		if (t.str == ":=")
 		{
+
 			output.insert(0, prefix);
 			t = token_producer.get_next_token();
 			if (t.str == "\"")
@@ -3239,11 +3318,11 @@ namespace Converter_RVC_Rust
 			else if (t.str == "[")
 			{
 				std::pair<std::string, bool> ret_val =
-					convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+					convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
+
 				if (ret_val.second)
 				{
-					// remove = sign
-					output.erase(output.find_last_of("="));
+
 					if (!type_specified)
 					{ // if there is no type, this is not the declaration, thus the part before the equal sign can be skipped
 						while (output.find("\t") != std::string::npos)
@@ -3295,7 +3374,7 @@ namespace Converter_RVC_Rust
 						output = "";
 					}
 					// convert the expression to an if statement
-					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, symbol_type_map, prefix, symbol_name));
+					output.append(convert_inline_if_with_list_assignment(tmp.first, global_map, local_map, actor_var_map, symbol_type_map, prefix, symbol_name));
 				}
 				else
 				{
@@ -3325,7 +3404,7 @@ namespace Converter_RVC_Rust
 					}
 					else
 					{
-
+						value.append(t.str);
 						if (!is_const(t.str, global_map, local_map))
 						{
 							only_const_values = false;
@@ -3387,13 +3466,13 @@ namespace Converter_RVC_Rust
 			}
 			else if (t.str == "[")
 			{
-				std::pair<std::string, bool> ret_val = convert_brackets(t, token_producer, true, global_map, local_map, prefix);
+				std::pair<std::string, bool> ret_val = convert_brackets(t, token_producer, true, global_map, local_map, actor_var_map, prefix);
 				if (ret_val.second)
 				{
 					// remove const, because a list cannot be filled by a loop if it is const!
-					output.erase(output.find("const "), 6);
+					// output.erase(output.find("const "), 6);
 					// remove = sign
-					output.erase(output.find_last_of("="));
+					// output.erase(output.find_last_of("="));
 					if (!type_specified)
 					{ // if there is no type, this is not the declaration, thus the part before the equal sign can be skipped
 						while (output.find("\t") != std::string::npos)
@@ -3412,7 +3491,14 @@ namespace Converter_RVC_Rust
 				{
 					if (type_specified)
 					{
-						output.append(type + ",\n");
+						if (in_constructor)
+						{
+							output.append(ret_val.first + ",\n");
+						}
+						else
+						{
+							output.append(type + ",\n");
+						}
 					}
 					else
 					{
@@ -3467,16 +3553,6 @@ namespace Converter_RVC_Rust
 					}
 				}
 
-				// if (only_const_values)
-				// {
-				// 	int result = evaluate_constant_expression(value, global_map, local_map);
-
-				// 	output.append(type + ",\n");
-
-				// 	local_map[symbol_name] = std::to_string(result); // insert into the map to find it, if it is used to calculate the size of a type!!!
-				// }
-				// else
-				// {
 				if (in_constructor)
 				{
 					output.append(value + ",\n");
@@ -3485,10 +3561,7 @@ namespace Converter_RVC_Rust
 				{
 					output.append(type + ",\n");
 				}
-				// std::cout << "const Symbol " << symbol_name << " has value: " << global_map[symbol_name] << std::endl;
-				// local_map[symbol_name] = ""; // insert into the map to symbolize that it is defined but not const!
 			}
-			// }
 		}
 		else
 		{ // find expressions with an assignment
@@ -3552,9 +3625,10 @@ namespace Converter_RVC_Rust
 			{
 				output.append("self.");
 			}
+
 			if (t.str == "]")
 			{
-				output.append(" as usize ");
+				output.append(" ) as usize ");
 			}
 			// if (global_map[t.str] == "native")
 			if ((global_map.find(t.str) != global_map.end()) && (global_map[t.str] != "") && (global_map[t.str] == "native"))
@@ -3563,7 +3637,12 @@ namespace Converter_RVC_Rust
 				is_native = true;
 			}
 
-			output.append(t.str);
+			output.append(" " + t.str);
+
+			if (t.str == "[")
+			{
+				output.append("( ");
+			}
 
 			if (t.str == ")" && is_native)
 			{

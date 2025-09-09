@@ -41,45 +41,14 @@ static std::pair<std::string, std::string> class_variable_generation(
 		std::string symbol_name;
 		bool const_def = false;
 		std::string tmp = Converter_RVC_Rust::convert_expression_act_var(t, *it, data.get_symbol_map(), data.get_symbol_type_map(), symbol_name, prefix, false);
-		// std::cout << "Symbol name : " << symbol_name << "tmp : " << tmp << std::endl;
+
 		actor_var_map.insert(symbol_name);
 
-		if (tmp.find_first_of(";") != tmp.find_last_of(";"))
-		{
-			// There is more than one ; in the result. This is some comprehension. Add it to the constructor.
-			if (tmp.find("static") != tmp.npos)
-			{
-				// It is not really const, but is static because we only tag it as not const
-				// due to the initialization that has to be done by the init, otherwise it is const.
-				// Hence, it is static, so no need to add it to actor type!
-				const_ret.append(tmp.substr(0, tmp.find_first_of(";")));
-				const_def = true;
-			}
-			else
-			{
-				ret += tmp.substr(0, tmp.find_first_of(";"));
-			}
-			tmp = tmp.substr(tmp.find_first_of(";") + 1);
-			replace_all_substrings(tmp, "\t", "\t\t");
-			data.add_constructor_code(tmp);
-		}
-		else
-		{
-			if (tmp.find("const") != tmp.npos)
-			{
-				const_ret.append(tmp);
-				const_def = true;
-			}
-			else
-			{
-				ret.append(tmp);
-				replace_all_substrings(tmp, "\t", "");
-				// const_ret.append(tmp);
-			}
-		}
+		ret.append(tmp);
+		replace_all_substrings(tmp, "\t", "");
+
 		data.add_class_variable(symbol_name);
 	}
-
 	// Parameters
 	std::string parameters;
 	for (auto it = actor->get_actor()->get_param_buffers().begin();
@@ -181,7 +150,7 @@ static std::string constructor_generation(
 		// temporar solution until better alternative is found
 		std::string tmp_name = (it->first == "in") ? "input" : it->first;
 		// Type + _ + variable
-		// ret.append(it->second + " _" + it->first);
+
 		ret.append(tmp_name + ": " + it->second);
 
 		// we need to know if the channel is a sender or receiver
@@ -207,7 +176,7 @@ static std::string constructor_generation(
 	}
 	ret.append(") -> Self {\n");
 	ret.append("\t\t" + class_name + "{\n");
-	// ret.append("// testing \n");
+
 	for (auto it = actor->get_var_buffers().begin();
 		 it != actor->get_var_buffers().end(); ++it)
 	{
@@ -220,7 +189,7 @@ static std::string constructor_generation(
 
 		ret.append(tmp);
 	}
-	// ret.append("// testing \n");
+
 	ret.append("\t\t\tactor_name: name.to_string(),\n");
 	ret.append("\t\t\tdone_flag: false,\n");
 	if (!actor->get_fsm().empty())
@@ -228,7 +197,7 @@ static std::string constructor_generation(
 		ret.append("\t\t\tcurrent_state: FSM::" + actor->get_initial_state() + ",\n");
 	}
 	ret.append(body);
-	// ret.append("// constructor_code\n");
+
 	ret.append(data.get_constructor_code());
 	ret.append("\t\t}\n");
 	ret.append("\t}\n");
@@ -406,8 +375,9 @@ static std::string generate_FSM(
 	return ret;
 }
 
-static void convert_import(
-	IR::Actor_Instance *inst)
+static std::string convert_import(
+	IR::Actor_Instance *inst,
+	std::string func_imports)
 {
 	Actor_Conversion_Data &d = inst->get_conversion_data();
 	std::set<std::string> seen_vars;
@@ -418,12 +388,13 @@ static void convert_import(
 		 it != inst->get_actor()->get_imported_symbols().end(); ++it)
 	{
 		// checks if imports already converted for this actor
-		if (converted_actors.contains(inst->get_actor()->get_conversion_data().get_class_name()))
+		if (converted_actors.contains(inst->get_actor()->get_conversion_data().get_class_name()) && seen_vars.contains(it->first))
 		{
 			break;
 		}
 
 		converted_actors.insert(inst->get_actor()->get_conversion_data().get_class_name());
+		seen_vars.insert(it->first);
 
 		bool found_symbol{false};
 		std::string code, declarations;
@@ -457,6 +428,7 @@ static void convert_import(
 				throw Wrong_Token_Exception{"Unexpected token during processing of Unit file."};
 			}
 		}
+
 		for (auto m = it->second->get_method_buffers().begin(); m != it->second->get_method_buffers().end(); ++m)
 		{
 			m->reset_buffer();
@@ -464,7 +436,7 @@ static void convert_import(
 			if (t.str == "function")
 			{
 				std::string tmp{Converter_RVC_Rust::convert_function(t, *m, d.get_symbol_map(), d.get_symbol_type_map(), empty_map, "\t", it->first)};
-				code += tmp;
+				func_imports += tmp;
 				// find declaration and insert it at the beginning of the source string, to avoid linker errors
 				// std::string dekl = tmp.substr(0, tmp.find("{")) + ";\n";
 				// declarations.insert(0, dekl);
@@ -472,7 +444,7 @@ static void convert_import(
 			else if (t.str == "procedure")
 			{
 				std::string tmp{Converter_RVC_Rust::convert_procedure(t, *m, d.get_symbol_map(), d.get_symbol_type_map(), empty_map, "\t", it->first)};
-				code += tmp;
+				func_imports += tmp;
 				// find declaration and insert it at the beginning of the source string, to avoid linker errors
 				// std::string dekl = tmp.substr(0, tmp.find("{")) + ";\n";
 				// declarations.insert(0, dekl);
@@ -486,10 +458,13 @@ static void convert_import(
 				throw Wrong_Token_Exception{"Unexpected token during processing of Unit file."};
 			}
 		}
+
 		for (auto n = it->second->get_native_buffers().begin(); n != it->second->get_native_buffers().end(); ++n)
 		{
+
 			n->reset_buffer();
 			Token t = n->get_next_token();
+			std::cout << "imports3: " << t.str << std::endl;
 			declarations += Converter_RVC_Rust::convert_native_declaration(t, *n, it->first, d);
 		}
 
@@ -501,9 +476,12 @@ static void convert_import(
 		{
 			throw Code_Generation::Code_Generation_Exception{"Didn't find symbol " + it->first + " in import."};
 		}
+
 		d.add_var_code(code);
 		d.add_declarations(declarations);
 	}
+
+	return func_imports;
 }
 
 std::pair<Code_Generation_Rust::Header, Code_Generation_Rust::Source>
@@ -531,15 +509,13 @@ Code_Generation_Rust::generate_actor_code(
 	std::string header_code, source_code;
 	std::map<std::string, std::set<std::string>> action_param_read;
 
-	std::cout << "Generation of actor " << actor->get_class_name() << " with name " << class_name << std::endl;
-
 	Config *c = c->getInstance();
 	std::map<std::string, std::string> constructor_parameter_name_type_map;
 
 	Actor_Conversion_Data &d = instance->get_conversion_data();
 
-	convert_import(instance);
-
+	std::string func_imports;
+	func_imports = convert_import(instance, func_imports);
 	std::map<std::string, std::string> guard_map;
 	std::string tmp_name;
 	tmp_name = class_name;
@@ -559,13 +535,7 @@ Code_Generation_Rust::generate_actor_code(
 		header_code.append("use crate::channel::Channel;\n");
 	}
 
-	// if (c->get_orcc_compat())
-	// {
-	// 	header_code.append("#include \"options.h\"\n");
-	// }
-
 	header_code.append(generate_FSM(actor, unused_actions, class_name, "\t"));
-
 	header_code.append(d.get_declarations_code());
 	header_code.append(convert_natives(actor));
 
@@ -581,14 +551,13 @@ Code_Generation_Rust::generate_actor_code(
 
 	header_code.append(tmp.first);
 	header_code.append("}\n");
-
 	header_code.append("\n");
 	// impl actor function and actions
 	header_code.append("impl " + class_name + " {\n");
 	header_code.append(constructor_generation(actor, opt_data1, opt_data2, map_data,
 											  constructor_parameter_name_type_map, used_in_channels, used_out_channels, class_name, d));
 	header_code.append("\n");
-
+	header_code.append(func_imports);
 	header_code.append(function_generation(actor, opt_data1, opt_data2, map_data, actor_var_map, d, "\t"));
 	header_code.append(action_generation(actor, opt_data1, opt_data2, map_data, unused_actions,
 										 unused_in_channels, unused_out_channels, actor_var_map, action_param_read, d, "\t"));
@@ -619,13 +588,11 @@ Code_Generation_Rust::generate_actor_code(
 		scheduling_loop_bound,
 		actor_var_map,
 		action_param_read));
-
 	header_code.append("\n");
 	header_code.append("\tfn is_done(&self) -> bool {\n");
 	header_code.append("\t\tself.done_flag\n");
 	header_code.append("\t}\n");
 	header_code.append("}");
-
 	std::filesystem::path path_header{c->get_target_dir()};
 	path_header /= "src";
 	path_header /= header_name;

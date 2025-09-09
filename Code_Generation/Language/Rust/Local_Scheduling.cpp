@@ -151,7 +151,7 @@ static std::string default_local(
 				if (action_param_read.find(*action_it) != action_param_read.end())
 				{
 					const auto &params = action_param_read[*action_it];
-					
+
 					for (const auto &p : params)
 					{
 
@@ -265,7 +265,6 @@ static std::string default_local(
 						{
 							output.append(local_prefix + "\tbreak;\n");
 						}
-
 					}
 					else if (cond_receiver_map_str != "")
 					{
@@ -285,9 +284,7 @@ static std::string default_local(
 					{
 						output.append("// cond_receiver_map is empty \n");
 					}
-
 				}
-
 			}
 
 			output.append(local_prefix + "} else { // before last else\n");
@@ -304,7 +301,6 @@ static std::string default_local(
 			{
 
 				output.append(prefix + "\t\t\t}\n");
-
 			}
 			output.append(prefix + "\t\t" + "} // close current state\n"); // close current state
 		}
@@ -321,14 +317,11 @@ static std::string default_local(
 		if (static_rate)
 		{
 
-
 			std::string channel_prefetch = state_channel_access[""];
 			replace_all_substrings(channel_prefetch, "\t", prefix + "\t\t");
 			output.append(prefix + "\tif (" + action_schedulingCondition_map[schedulable_actions.front()] + ") {// first action condition \n");
 			output.append(channel_prefetch);
 			local_prefix = prefix + "\t\t";
-
-
 		}
 		else
 		{
@@ -537,12 +530,7 @@ static std::string default_local(
 						output.append(local_prefix + "\tbreak;\n");
 					}
 
-				}
-				else
-				{
-					output.append(local_prefix + "else {\n");
-					output.append(local_prefix + "\t" + droping_channel_sender[*action_it] + "\n");
-					output.append(local_prefix + "\tself.done_flag = true;\n");
+					// output.append(local_prefix + "}\n");
 				}
 			}
 		}
@@ -557,9 +545,7 @@ static std::string default_local(
 			output.append(local_prefix + "\tbreak;\n");
 		}
 		output.append(local_prefix + "}\n");
-
 	}
-
 
 	if (!round_robin)
 	{
@@ -682,8 +668,6 @@ static std::string default_local_2(
 						replace_all_substrings(t, "\t", local_prefix + "\t");
 						output.append(t);
 					}
-
-
 				}
 				else
 				{
@@ -728,7 +712,6 @@ static std::string default_local_2(
 					output.append(local_prefix + "\t}\n");
 				}
 				output.append(local_prefix + "}\n");
-
 			}
 			output.append(local_prefix + "else {\n");
 			if (round_robin)
@@ -943,8 +926,6 @@ static std::string default_local_2(
 				}
 			}
 		}
-
-
 	}
 	if (!round_robin)
 	{
@@ -1353,7 +1334,6 @@ std::string Scheduling::generate_local_scheduler_rust(
 		}
 	}
 
-	
 	// init with empty first so we don't need to care later and keep the guarantee that every action is in there
 	for (auto it = actions.begin(); it != actions.end(); ++it)
 	{
@@ -1418,7 +1398,6 @@ std::string Scheduling::generate_local_scheduler_rust(
 				std::string ch_tmp = (sched_data_it->channel_name == "in") ? "input" : sched_data_it->channel_name;
 				cond_receiver_map[action_it->first].append("self." + ch_tmp + ".is_terminated() && self." + ch_tmp + ".is_empty()");
 
-
 				// doesnt match well when we have 2 or more channel reads
 				for (const auto &s : param_map)
 				{
@@ -1466,7 +1445,6 @@ std::string Scheduling::generate_local_scheduler_rust(
 		{
 			action_schedulingCondition_map[action_it->first] = "true";
 		}
-
 	}
 
 	if (c->get_sched_non_preemptive() || c->get_sched_rr())

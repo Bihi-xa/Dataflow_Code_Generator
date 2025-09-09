@@ -43,7 +43,7 @@ static std::string find_channel_type(
 		}
 	}
 	// this cannot happen as this is detected early during network reading
-	throw Code_Generation::Code_Generation_Exception{"Cannot find type for port."};
+	throw Code_Generation::Code_Generation_Exception{"Cannot find type for port." + port_name};
 }
 
 static std::string generate_actor_constructor_parameters(
@@ -433,11 +433,6 @@ Code_Generation_Rust::generate_core(
 	// if (c->get_list_scheduling())
 	// {
 	// 	std::cout << "List scheduling not implemented for Rust code generation!" << std::endl;
-	// }
-	// { // change later
-	// 	std::string tmp;
-	// 	ABI_ALLOC_HEADER(c, tmp);
-	// 	code.append(tmp);
 	// }
 
 	code.append("\nconst CHANNEL_SIZE: usize =  " + std::to_string(c->get_FIFO_size()) + ";\n");
